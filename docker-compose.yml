@@ -1,0 +1,44 @@
+# One command runs everything:   docker compose up -d --build
+# Open the app:                    http://localhost:3000
+services:
+  mongo:
+    image: mongo:7
+    container_name: prep-mongo
+    restart: unless-stopped
+    volumes:
+      - mongo_data:/data/db          # ← your content lives here and survives restarts
+    ports:
+      - "27018:27017"                # connect with Compass: mongodb://localhost:27018
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  api:
+    build: ./server
+    container_name: prep-api
+    restart: unless-stopped
+    environment:
+      MONGO_URI: mongodb://mongo:27017/interview_prep
+      PORT: 5050
+    volumes:
+      - uploads_data:/app/uploads    # uploaded images
+    ports:
+      - "5050:5050"                  # API for Postman practice: http://localhost:5050/api/health
+    depends_on:
+      mongo:
+        condition: service_healthy
+
+  web:
+    build: ./client
+    container_name: prep-web
+    restart: unless-stopped
+    ports:
+      - "3000:80"
+    depends_on:
+      - api
+
+volumes:
+  mongo_data:
+  uploads_data:
