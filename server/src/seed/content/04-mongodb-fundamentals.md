@@ -373,7 +373,7 @@ CRUD is the four things you do with a **filing cabinet**: put new files in (**C*
 | `updateOne` / `updateMany(filter, update, opts)` | `update` **must** use operators (`$set`, `$inc`…) |
 | `upsert: true` | Insert when nothing matches (use `$setOnInsert` for insert-only fields) |
 | `replaceOne(filter, doc)` | Replace everything except `_id` |
-| `findOneAndUpdate(filter, update, { returnDocument: 'after' })` | Returns the document (Mongoose: `{ new: true }`) |
+| `findOneAndUpdate(filter, update, { returnDocument: 'after' })` | Returns the document (same in Mongoose 9; the old `{ new: true }` is deprecated) |
 
 ### Delete
 `deleteOne`, `deleteMany`, `findOneAndDelete`. `deleteMany({})` empties the collection; many teams use **soft deletes** (`deletedAt`) for undo and audit.
