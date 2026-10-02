@@ -10,3 +10,9 @@ docs/*.pdf
 
 # Exported app data (personal edits; keep local)
 backup-*.json
+
+# Private working notes: kept locally, never published
+CLAUDE.md
+SPECS.md
+.claude/
+.wip-content/

@@ -8,7 +8,7 @@
 // FAILURES (exit code 1) = things that are broken for the reader:
 //   parse errors, runnable JS that throws / prints "❌" / times out, JS/JSON syntax errors,
 //   bare == in prose, broken tables, invalid charts, risky Mermaid syntax, missing or malformed images.
-// WARNINGS = the question doesn't meet the content standard in SPECS.md §4 yet
+// WARNINGS = the question doesn't meet the content standard in docs/content-format.md yet
 //   (missing blocks, too few visuals, placeholders in code, no ✅ tests…).
 //
 // Optional: if `esbuild` can be resolved (client/node_modules or ESBUILD_PATH), JSX/TS blocks are syntax-checked too.
@@ -38,7 +38,7 @@ function canRun(code, lang) {
 }
 
 // ---------------------------------------------------------------------------
-// Section kinds decide which content standard applies (SPECS.md §4).
+// Section kinds decide which content standard applies (docs/content-format.md).
 function kindOf(file) {
   const n = Number(file.slice(0, 2));
   if (n === 12 || (n >= 16 && n <= 21)) return 'dsa';
@@ -121,7 +121,7 @@ function checkProse(text, where, fail) {
 const hasTable = (md) => /^\s*\|.*\|\s*$/m.test(md) && /^\s*\|?\s*:?-{3,}/m.test(md);
 
 // ---------------------------------------------------------------------------
-// Mermaid checks (heuristics for the rules in CLAUDE.md §3 rule 4)
+// Mermaid checks (heuristics for the rules in docs/content-format.md, rule 4)
 const MERMAID_HEADERS = /^(flowchart|graph)\s+(TD|TB|LR|RL|BT)\b|^sequenceDiagram\b|^stateDiagram-v2\b|^classDiagram\b|^erDiagram\b/;
 
 function checkMermaid(src, where, fail) {
@@ -347,7 +347,7 @@ async function pool(items, n, fn) {
 }
 
 // ---------------------------------------------------------------------------
-// Content standard (SPECS.md §4) → warnings
+// Content standard (docs/content-format.md) → warnings
 function standardWarnings(kind, q, warn) {
   const B = q.blocks;
   const has = (k, re) => B.some((b) => b.kind === k && (!re || re.test(b.header)));
@@ -410,7 +410,7 @@ async function main() {
   if (!files.length) { console.log(`No content files match "${filter}"`); process.exit(1); }
 
   const globalFailures = [];
-  // canRun() must stay identical in both places (CLAUDE.md §3 rule 6)
+  // canRun() must stay identical in both places (docs/content-format.md, rule 6)
   const runJsSrc = fs.readFileSync(RUNJS_FILE, 'utf8');
   const m = runJsSrc.match(/export function canRun\([\s\S]*?\n\}/);
   if (!m || m[0].replace(/^export /, '') !== canRun.toString()) globalFailures.push('canRun() in scripts/verify-content.js differs from client/src/utils/runJs.js');

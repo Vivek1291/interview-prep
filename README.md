@@ -122,7 +122,7 @@ The default content is seeded **only when the database is empty**, so your edits
 - Forgot the admin password? Another admin can't see it either. Promote a second account to admin in Settings beforehand, or reset the data (`down -v`, see below).
 
 ### Editing the default question bank (optional)
-The seed files in `server/src/seed/content/*.md` use a simple format (`=== Question`, `::: code javascript`, `::: understand`, `::: ask`, `::: image`, …; see `CLAUDE.md` §3). Illustrations live in `client/public/images/<section>/*.svg` (rebuild the web image after adding some).
+The seed files in `server/src/seed/content/*.md` use a simple format (`=== Question`, `::: code javascript`, `::: understand`, `::: ask`, `::: image`, …; see [`docs/content-format.md`](docs/content-format.md)). Illustrations live in `client/public/images/<section>/*.svg` (rebuild the web image after adding some).
 
 After changing seed files:
 
@@ -130,7 +130,14 @@ After changing seed files:
 node scripts/verify-content.js        # runs every ▶ Run example and checks the format (expect 0 failures, 0 warnings)
 ```
 
-Then, logged in as an admin: **Settings → Export** (back up first), then **Settings → Reset** to load the seed files. Reset replaces the **shared** content; private content and everyone's progress are kept. (The curl equivalent with a token is in `CLAUDE.md`.)
+Then, logged in as an admin: **Settings → Export** (back up first), then **Settings → Reset** to load the seed files. Reset replaces the **shared** content; private content and everyone's progress are kept.
+
+With curl (log in as an admin first to get a token):
+```bash
+TOKEN=$(curl -s -X POST localhost:5050/api/auth/login -H 'Content-Type: application/json' -d '{"email":"you@example.com","password":"…"}' | node -pe 'JSON.parse(require("fs").readFileSync(0)).accessToken')
+curl -s -H "Authorization: Bearer $TOKEN" localhost:5050/api/backup/export -o backup-$(date +%Y%m%d-%H%M).json
+curl -s -X POST -H "Authorization: Bearer $TOKEN" localhost:5050/api/backup/reset
+```
 
 `backup-*.json` files are git-ignored because they contain your personal edits.
 
