@@ -1,5 +1,6 @@
 import { useEffect, useId, useState } from 'react';
 import { useApp } from '../../AppContext';
+import { Zoomable } from '../ZoomViewer';
 
 let mermaidPromise = null;
 let lastTheme = null;
@@ -22,7 +23,7 @@ async function getMermaid(theme) {
 let counter = 0;
 
 // Renders Mermaid source (flowchart, sequenceDiagram, classDiagram, erDiagram, stateDiagram…) to SVG.
-export function DiagramView({ source }) {
+export function DiagramView({ source, title }) {
   const { theme } = useApp();
   const [svg, setSvg] = useState('');
   const [error, setError] = useState('');
@@ -56,7 +57,28 @@ export function DiagramView({ source }) {
       </div>
     );
   }
-  return <div className="diagram" dangerouslySetInnerHTML={{ __html: svg || '<span class="muted">Rendering…</span>' }} />;
+  if (!svg) return <div className="diagram"><span className="muted">Rendering…</span></div>;
+  const size = svgSize(svg);
+  const items = [{
+    key: svg,
+    title: title || 'Diagram',
+    size,
+    // the SVG has a viewBox, so the browser redraws it sharply at any size
+    render: () => <div className="zoom-svg" dangerouslySetInnerHTML={{ __html: svg }} />,
+  }];
+  return (
+    <Zoomable items={items} label="Zoom diagram">
+      <div className="diagram" dangerouslySetInnerHTML={{ __html: svg }} />
+    </Zoomable>
+  );
+}
+
+// Natural size of a rendered Mermaid SVG, from its viewBox.
+function svgSize(svg) {
+  const m = /<svg[^>]*\sviewBox="\s*[-\d.]+[\s,]+[-\d.]+[\s,]+([\d.]+)[\s,]+([\d.]+)/.exec(svg);
+  const w = m ? Number(m[1]) : 0;
+  const h = m ? Number(m[2]) : 0;
+  return w > 0 && h > 0 ? { w, h } : { w: 800, h: 500 };
 }
 
 const TEMPLATES = {

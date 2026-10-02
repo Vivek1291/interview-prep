@@ -43,7 +43,7 @@ export function newBlock(def) {
 function Body({ block }) {
   switch (block.type) {
     case 'code': return <CodeView block={block} />;
-    case 'diagram': return <DiagramView source={block.content} />;
+    case 'diagram': return <DiagramView source={block.content} title={block.title} />;
     case 'chart': return <ChartView block={block} />;
     case 'image': return <ImageView block={block} />;
     case 'links': return <LinksView block={block} />;

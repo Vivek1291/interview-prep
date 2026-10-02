@@ -1,20 +1,28 @@
 import { useState } from 'react';
 import { api } from '../../api/client';
 import { useApp } from '../../AppContext';
+import { Zoomable } from '../ZoomViewer';
 
 // ---------- Image ----------
 // content = one image URL per line
 export function ImageView({ block }) {
   const urls = (block.content || '').split('\n').map((u) => u.trim()).filter(Boolean);
   if (!urls.length) return <div className="muted">No image yet.</div>;
+  const alt = block.title || 'image';
+  const items = urls.map((u, i) => ({
+    key: u,
+    src: u,
+    title: urls.length > 1 ? `${alt} (${i + 1}/${urls.length})` : alt,
+    render: ({ width, height }) => <img src={u} alt={alt} width={width} height={height} draggable={false} />,
+  }));
   return (
-    <div className="images">
-      {urls.map((u) => (
-        <a key={u} href={u} target="_blank" rel="noreferrer" title="Open full size">
-          <img src={u} alt={block.title || 'image'} loading="lazy" />
-        </a>
-      ))}
-    </div>
+    <Zoomable items={items} label="Zoom image">
+      <div className="images">
+        {urls.map((u, i) => (
+          <img key={u} src={u} alt={alt} loading="lazy" data-zoom-index={i} title="Click to zoom" />
+        ))}
+      </div>
+    </Zoomable>
   );
 }
 

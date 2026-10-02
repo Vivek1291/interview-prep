@@ -65,6 +65,7 @@ docker compose up -d --build  # rebuild after changing code
   - 📊 **Charts** (bar / line / area from simple CSV)
   - 🖼️ **Images** (upload or paste a URL) and 🔗 **links**
   - Drag, move up/down, duplicate, delete and fold blocks. **Ctrl/Cmd + S** saves.
+- **🔍 Zoom** any image, diagram or chart: click it (or the ⤢ Zoom button) for a full-screen view. Scroll or pinch to zoom, drag to move, double-click to zoom in, `+` / `-` / `0` / `1` keys, Esc to close. SVGs and charts are re-drawn at the zoom level, so they stay sharp.
 - **⚡ Quick Revise**: the page's notes plus your own, in one page, filterable by category (including its sub-categories), must-know only, printable. **Select any text** in a question → **📌 Add to Quick Revise**.
 - **🏋️ Practice mode** (top bar) blurs the solutions until you click, so you try first.
 - **▶ Run**: runs plain JavaScript examples in a sandboxed web worker and shows the console output.
