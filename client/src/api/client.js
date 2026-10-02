@@ -103,6 +103,17 @@ export const api = {
     form.append('file', file);
     return http.post('/uploads', form).then((r) => r.data.url);
   },
+  // import a prepared document (.docx file or Google Docs link) as categories + pages
+  importStart: ({ file, url }, onUploadProgress) => {
+    if (url) return http.post('/imports', { url }, { timeout: 0 }).then(data);
+    const form = new FormData();
+    form.append('file', file);
+    return http.post('/imports', form, { timeout: 0, onUploadProgress }).then(data);
+  },
+  importPreview: (id, rule) => http.post(`/imports/${id}/preview`, { rule }).then(data),
+  importCommit: (id, body) => http.post(`/imports/${id}/commit`, body, { timeout: 0 }).then(data),
+  importCancel: (id) => http.delete(`/imports/${id}`).catch(() => {}),
+
   exportBackup: () => http.get('/backup/export').then((r) => r.data),
   importBackup: (json) => http.post('/backup/import', json).then((r) => r.data),
   reset: () => http.post('/backup/reset').then((r) => r.data),

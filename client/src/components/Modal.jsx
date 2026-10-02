@@ -4,15 +4,20 @@ import { createPortal } from 'react-dom';
 // Accessible modal: portal, Escape to close, focus first field, click-outside to close.
 export default function Modal({ title, onClose, children, width = 480 }) {
   const ref = useRef(null);
+  const closeRef = useRef(onClose);
+  closeRef.current = onClose;
+  // focus the first field ONCE when the dialog opens (re-focusing on every render would steal focus while typing)
   useEffect(() => {
-    const onKey = (e) => e.key === 'Escape' && onClose();
+    ref.current?.querySelector('input:not([hidden]), textarea, select, button')?.focus();
+  }, []);
+  useEffect(() => {
+    const onKey = (e) => e.key === 'Escape' && closeRef.current();
     document.addEventListener('keydown', onKey);
-    ref.current?.querySelector('input, textarea, select, button')?.focus();
     return () => document.removeEventListener('keydown', onKey);
-  }, [onClose]);
+  }, []);
 
   return createPortal(
-    <div className="modal-backdrop" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
+    <div className="modal-backdrop" onMouseDown={(e) => e.target === e.currentTarget && closeRef.current()}>
       <div className="modal" role="dialog" aria-modal="true" aria-label={title} ref={ref} style={{ maxWidth: width }}>
         <div className="modal-header">
           <h3>{title}</h3>

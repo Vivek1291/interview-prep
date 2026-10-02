@@ -28,5 +28,12 @@ const avatarUpload = multer({
   fileFilter: imageFilter(['image/png', 'image/jpeg', 'image/webp', 'image/gif']),
 });
 
+// Documents to import (.docx): kept in memory, parsed, never stored as uploaded
+const documentUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 60 * 1024 * 1024, files: 1 }, // 60 MB (documents with many images)
+});
+
 module.exports = upload;
 module.exports.avatarUpload = avatarUpload;
+module.exports.documentUpload = documentUpload;

@@ -65,6 +65,7 @@ docker compose up -d --build  # rebuild after changing code
   - 📊 **Charts** (bar / line / area from simple CSV)
   - 🖼️ **Images** (upload or paste a URL) and 🔗 **links**
   - Drag, move up/down, duplicate, delete and fold blocks. **Ctrl/Cmd + S** saves.
+- **📥 Import your own notes** (Word **.docx** or a **Google Docs link**): click **📥 Import** on a category (or ＋ in the sidebar → Import a document). Choose how to split it: lines starting with **“Q)”** (or any text you type), **Heading 1 / 2 / 3** (higher headings become sub-categories), or one page. A live preview lets you rename pages, **⤴ merge** a page into the one above, or leave pages out. Monospace text becomes ▶ code blocks; images, tables, lists, links, bold and colours are kept. Admins import shared content; everyone else imports privately. Google Docs links must be shared as “Anyone with the link” (big documents take a minute or two).
 - **🔍 Zoom** any image, diagram or chart: click it (or the ⤢ Zoom button) for a full-screen view. Scroll or pinch to zoom, drag to move, double-click to zoom in, `+` / `-` / `0` / `1` keys, Esc to close. SVGs and charts are re-drawn at the zoom level, so they stay sharp.
 - **⚡ Quick Revise**: the page's notes plus your own, in one page, filterable by category (including its sub-categories), must-know only, printable. **Select any text** in a question → **📌 Add to Quick Revise**.
 - **🏋️ Practice mode** (top bar) blurs the solutions until you click, so you try first.

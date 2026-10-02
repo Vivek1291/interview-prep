@@ -10,6 +10,7 @@ const users = require('../controllers/userController');
 const sections = require('../controllers/sectionController');
 const questions = require('../controllers/questionController');
 const admin = require('../controllers/adminController');
+const imports = require('../controllers/importController');
 
 // Router-level middleware / routes. Mounted at /api/v1 (API versioning) and /api.
 const router = express.Router();
@@ -66,6 +67,12 @@ router.get('/quick-notes', questions.revise);
 
 // Images inside pages
 router.post('/uploads', upload.single('file'), admin.upload);
+
+// Import a prepared document (.docx upload or Google Docs link) as categories + pages
+router.post('/imports', upload.documentUpload.single('file'), imports.start);
+router.post('/imports/:id/preview', validate(s.importPreview), imports.preview);
+router.post('/imports/:id/commit', validate(s.importCommit), imports.commit);
+router.delete('/imports/:id', imports.cancel);
 
 // ---- Admin ----
 router.get('/admin/users', requireAdmin, users.list);

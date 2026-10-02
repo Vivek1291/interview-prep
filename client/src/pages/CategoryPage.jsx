@@ -1,10 +1,12 @@
-import { useState } from 'react';
+import { Suspense, lazy, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useQuestionMutations, useSectionMutations, useTree } from '../api/hooks';
 import { useApp } from '../AppContext';
 import { useAuth } from '../auth/AuthProvider';
 import { QuestionFormModal, SectionFormModal } from '../components/Forms';
 import { pct } from '../utils/tree';
+
+const ImportModal = lazy(() => import('../components/ImportModal'));
 
 const STATUS_LABEL = { new: '○ Not started', learning: '◐ Learning', revise: '↻ Revise', confident: '● Confident' };
 
@@ -46,6 +48,7 @@ export default function CategoryPage() {
         <div className="q-actions">
           <button className="btn" onClick={() => setModal({ type: 'section' })}>📁 Sub-category</button>
           <button className="btn btn-primary" onClick={() => setModal({ type: 'page' })}>📄 New page</button>
+          <button className="btn" onClick={() => setModal({ type: 'import' })} title="Import a Word file or Google Doc: its headings become pages">📥 Import</button>
           {node.canEdit && <button className="btn" onClick={() => setModal({ type: 'edit' })}>✎ Edit</button>}
         </div>
       </div>
@@ -103,6 +106,11 @@ export default function CategoryPage() {
         )}
       </section>
 
+      {modal?.type === 'import' && (
+        <Suspense fallback={null}>
+          <ImportModal node={node} onClose={() => setModal(null)} />
+        </Suspense>
+      )}
       {modal?.type === 'section' && (
         <SectionFormModal parent={node._id} roots={tree.roots} isAdmin={isAdmin} onClose={() => setModal(null)}
           onSubmit={(body) => sections.create.mutate(body, done((n) => { setModal(null); toast('Category created'); navigate(`/c/${n._id}`); }))} />

@@ -62,7 +62,33 @@ const profileUpdate = z.object({ name }).strict();
 const passwordChange = z.object({ currentPassword: z.string().min(1).max(200), newPassword: password }).strict();
 const roleUpdate = z.object({ role: z.enum(['admin', 'user']) }).strict();
 
+// ---- Import a document ----
+const importRule = z.discriminatedUnion('type', [
+  z.object({ type: z.literal('heading'), level: z.number().int().min(1).max(6) }).strict(),
+  z.object({ type: z.literal('prefix'), prefix: z.string().trim().min(1).max(40) }).strict(),
+  z.object({ type: z.literal('single') }).strict(),
+]);
+const importStart = z.object({ url: z.string().trim().url().max(500) }).strict();
+const importPreview = z.object({ rule: importRule }).strict();
+const importCommit = z.object({
+  rule: importRule,
+  parent: objectId.nullable().optional(),
+  newCategory: z.object({
+    title: z.string().trim().min(1).max(120),
+    icon: z.string().max(8).optional(),
+    color: z.string().max(30).optional(),
+    description: z.string().max(500).optional(),
+  }).strict().optional(),
+  items: z.array(z.object({
+    key: z.string().max(20),
+    title: z.string().max(300).optional(),
+    merge: z.boolean().optional(),
+    skip: z.boolean().optional(),
+  }).strict()).max(20000).optional(),
+}).strict();
+
 module.exports = {
   sectionCreate, sectionUpdate, questionCreate, questionUpdate, reorder, noteCreate, progressUpdate,
   register, login, profileUpdate, passwordChange, roleUpdate, objectId,
+  importStart, importPreview, importCommit,
 };

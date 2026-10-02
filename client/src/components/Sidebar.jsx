@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { Suspense, lazy, useEffect, useMemo, useState } from 'react';
 import { NavLink, useLocation, useNavigate } from 'react-router-dom';
 import { DndContext, PointerSensor, KeyboardSensor, closestCenter, useSensor, useSensors } from '@dnd-kit/core';
 import { SortableContext, arrayMove, useSortable, verticalListSortingStrategy, sortableKeyboardCoordinates } from '@dnd-kit/sortable';
@@ -10,6 +10,8 @@ import { pct } from '../utils/tree';
 import { useApp } from '../AppContext';
 import { useAuth } from '../auth/AuthProvider';
 import { QuestionFormModal, SectionFormModal } from './Forms';
+
+const ImportModal = lazy(() => import('./ImportModal'));   // only downloaded when used
 
 const FILTERS = [
   { key: 'all', label: 'All' },
@@ -234,6 +236,9 @@ export default function Sidebar() {
           <button className="btn btn-block add-section" onClick={() => setModal({ type: 'section', parent: null })}>
             ＋ New {isAdmin ? 'area' : 'private category'}
           </button>
+          <button className="btn btn-block add-section" onClick={() => setModal({ type: 'import', node: null })}>
+            📥 Import a document
+          </button>
         </>
       )}
 
@@ -242,8 +247,17 @@ export default function Sidebar() {
           node={modal.node}
           isAdmin={isAdmin}
           onClose={() => setModal(null)}
-          onChoose={(kind) => setModal(kind === 'page' ? { type: 'question', node: modal.node } : { type: 'section', parent: modal.node._id })}
+          onChoose={(kind) => setModal(
+            kind === 'page' ? { type: 'question', node: modal.node }
+              : kind === 'import' ? { type: 'import', node: modal.node }
+                : { type: 'section', parent: modal.node._id },
+          )}
         />
+      )}
+      {modal?.type === 'import' && (
+        <Suspense fallback={null}>
+          <ImportModal node={modal.node} onClose={() => setModal(null)} />
+        </Suspense>
       )}
       {modal?.type === 'section' && (
         <SectionFormModal
@@ -284,6 +298,7 @@ function AddChoice({ node, isAdmin, onClose, onChoose }) {
         <div className="modal-body add-choice">
           <button className="btn" onClick={() => onChoose('section')}>📁 Sub-category<span className="muted small">e.g. Polyfills → Promise</span></button>
           <button className="btn" onClick={() => onChoose('page')}>📄 Page<span className="muted small">a question, lesson or article</span></button>
+          <button className="btn" onClick={() => onChoose('import')}>📥 Import a document<span className="muted small">Word (.docx) or Google Docs: headings become pages</span></button>
           <p className="muted small">{isAdmin ? 'Admins add shared content: every user will see it.' : 'It will be private: only you can see and edit it.'}</p>
         </div>
       </div>
