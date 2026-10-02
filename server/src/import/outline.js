@@ -186,7 +186,7 @@ async function pageBlocks(elements, item, { imageUrl, mergedFrom = [] }) {
   };
 
   // inner heading levels → h2/h3/h4 by rank
-  const innerLevels = [...new Set(parts.flatMap((p) => elements.slice(p.start, p.end).filter((e, k) => e.t === 'h' && p.start + k !== p.titleElement).map((e) => e.level)))].sort();
+  const innerLevels = [...new Set(parts.flatMap((p) => elements.slice(p.start, p.end).filter((e, k) => e.t === 'h' && p.start + k !== p.titleElement).map((e) => e.level)))].sort((a, b) => a - b);
   const hTag = (level) => `h${Math.min(2 + Math.max(0, innerLevels.indexOf(level)), 4)}`;
 
   for (const [n, part] of parts.entries()) {

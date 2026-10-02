@@ -113,6 +113,10 @@ export const api = {
   importPreview: (id, rule) => http.post(`/imports/${id}/preview`, { rule }).then(data),
   importCommit: (id, body) => http.post(`/imports/${id}/commit`, body, { timeout: 0 }).then(data),
   importCancel: (id) => http.delete(`/imports/${id}`).catch(() => {}),
+  importCommitTabs: (id, body) => http.post(`/imports/${id}/commit-tabs`, body).then(data),
+  importStatus: (id) => http.get(`/imports/${id}/status`).then(data),
+  importWholeDocument: (id) => http.post(`/imports/${id}/whole-document`, null, { timeout: 0 }).then(data),
+  importUseTabs: (id) => http.post(`/imports/${id}/tabs`).then(data),
 
   exportBackup: () => http.get('/backup/export').then((r) => r.data),
   importBackup: (json) => http.post('/backup/import', json).then((r) => r.data),

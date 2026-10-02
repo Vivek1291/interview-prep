@@ -72,6 +72,10 @@ router.post('/uploads', upload.single('file'), admin.upload);
 router.post('/imports', upload.documentUpload.single('file'), imports.start);
 router.post('/imports/:id/preview', validate(s.importPreview), imports.preview);
 router.post('/imports/:id/commit', validate(s.importCommit), imports.commit);
+router.post('/imports/:id/commit-tabs', validate(s.importCommitTabs), imports.commitTabs);
+router.get('/imports/:id/status', imports.status);
+router.post('/imports/:id/whole-document', imports.useWholeDocument);
+router.post('/imports/:id/tabs', imports.useTabs);
 router.delete('/imports/:id', imports.cancel);
 
 // ---- Admin ----

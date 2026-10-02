@@ -87,8 +87,18 @@ const importCommit = z.object({
   }).strict()).max(20000).optional(),
 }).strict();
 
+const importCommitTabs = z.object({
+  parent: objectId.nullable().optional(),
+  newCategory: importCommit.shape.newCategory,
+  tabs: z.array(z.object({
+    id: z.string().regex(/^t\.[a-z0-9]{1,20}$/),   // the first tab is "t.0"
+    title: z.string().max(300).optional(),
+    as: z.enum(['folder', 'page']).optional(),
+  }).strict()).min(1).max(1000),
+}).strict();
+
 module.exports = {
   sectionCreate, sectionUpdate, questionCreate, questionUpdate, reorder, noteCreate, progressUpdate,
   register, login, profileUpdate, passwordChange, roleUpdate, objectId,
-  importStart, importPreview, importCommit,
+  importStart, importPreview, importCommit, importCommitTabs,
 };

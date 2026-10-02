@@ -210,3 +210,157 @@ test('permissions and bad input', async () => {
   await admin.post('/api/imports').send({}).expect(400);
   await request(app).post('/api/imports').attach('file', notesDocx, 'x.docx').expect(401);
 });
+
+// ---------------------------------------------------------------------------------------------
+// Google Docs with tabs (the Google calls are replaced by fakes: tests never touch the network)
+const google = require('../src/import/googleDocs');
+
+test('the tab list is read from the Google Docs page (first tab included)', () => {
+  const html = '<meta property="og:title" content="JS &amp; more"><script>DOCS_modelChunk = {"chunk":[{"ty":"ac","d":["t.aaaaaaaa",[1,"Async"],[1]]},{"ty":"ac","d":["t.bbbbbbbb",[1,"Promises \\u2728"],[1,0]]},{"ty":"ac","d":["t.cccccccc",[1,"Polyfill"],[1,0,0]]},{"ty":"ac","d":["t.dddddddd",[1,"Basics"],[2]]}]}; x("t.0", 99)</script>';
+  const r = google.parseTabs(html);
+  assert.equal(r.title, 'JS & more');
+  assert.deepEqual(r.tabs.map((t) => `${t.path.join('.')} ${t.id} ${t.title}`), ['0 t.0 ', '1 t.aaaaaaaa Async', '1.0 t.bbbbbbbb Promises ✨', '1.0.0 t.cccccccc Polyfill', '2 t.dddddddd Basics']);
+  // a broken structure (sub-tab without its parent) is not trusted → whole-document import
+  assert.deepEqual(google.parseTabs('{"ty":"ac","d":["t.aaaaaaaa",[1,"A"],[3,2]]}').tabs, []);
+});
+
+test('Google Docs tabs: pick tabs, sub-tabs become sub-categories or sections, progress is reported', async (t) => {
+  const PNG2 = Buffer.concat([PNG, Buffer.from('second')]);
+  const docs = {
+    't.0': await makeDocx(P(run('Q) What is JavaScript?', { b: true })) + P(run('A language.'))),
+    't.async000': await makeDocx(P(run('Async intro')) + IMG),                                         // image1.png
+    't.promise0': await makeDocx(H(1, 'Basics') + P(run('A promise is a value later.')) + CODE('new Promise(r => r(1));')),
+    't.poly0000': await makeDocx(P(run('Polyfill text')) + IMG),                                        // also image1.png, different file
+    't.basics00': await makeDocx(''),                                                                   // empty container tab
+    't.var00000': await makeDocx(P(run('var is function scoped'))),
+    't.call0000': await makeDocx(P(run('call text'))),
+    't.callpoly': await makeDocx(P(run('call polyfill text')) + CODE('Function.prototype.myCall = function () {};')),
+    't.empty000': await makeDocx(''),
+  };
+  // the polyfill tab's image is a different picture with the same name inside its own .docx
+  const polyZip = await JSZip.loadAsync(docs['t.poly0000']);
+  polyZip.file('word/media/image1.png', PNG2);
+  docs['t.poly0000'] = await polyZip.generateAsync({ type: 'nodebuffer' });
+
+  const tabs = [
+    { id: 't.0', title: '', path: [0] },
+    { id: 't.async000', title: 'Async Operations', path: [1] },
+    { id: 't.promise0', title: 'Promises', path: [1, 0] },
+    { id: 't.poly0000', title: 'Promise Polyfill', path: [1, 0, 0] },
+    { id: 't.basics00', title: 'Basic Interview Question', path: [2] },
+    { id: 't.var00000', title: 'var, let and const', path: [2, 0] },
+    { id: 't.call0000', title: 'Call', path: [2, 1] },
+    { id: 't.callpoly', title: 'Call Polyfill', path: [2, 1, 0] },
+    { id: 't.empty000', title: 'Tab 9', path: [3] },
+  ];
+  const downloads = [];
+  t.mock.method(google, 'fetchTabs', async () => ({ title: 'Javascript Interview Prep', tabs: tabs.map((x) => ({ ...x })) }));
+  t.mock.method(google, 'exportDocx', async (docId, tabId) => {
+    downloads.push(tabId || 'whole');
+    await new Promise((r) => setTimeout(r, 15));
+    return { buffer: tabId ? docs[tabId] : notesDocx, fileName: 'Javascript Interview Prep.docx' };
+  });
+  const URL_ = 'https://docs.google.com/document/d/1h-jFJKi9FtdfNHxiKYyoqZ-tvfJaTiIyhMVCJf7JYvI/edit?usp=sharing';
+
+  const a = (await admin.post('/api/imports').send({ url: URL_ }).expect(201)).body.data;
+  assert.equal(a.mode, 'tabs');
+  assert.equal(a.fileName, 'Javascript Interview Prep');
+  assert.equal(a.tabs[0].title, 'What is JavaScript?', 'the unnamed first tab is named after its first line');
+  assert.deepEqual(downloads, ['t.0'], 'only the unnamed tab is downloaded up front');
+
+  // switch to "whole document" and back
+  const whole = (await admin.post(`/api/imports/${a.id}/whole-document`).expect(200)).body.data;
+  assert.equal(whole.mode, 'document');
+  assert.equal(whole.canUseTabs, true);
+  assert.deepEqual(whole.suggested, { type: 'prefix', prefix: 'Q)' });
+  const back = (await admin.post(`/api/imports/${a.id}/tabs`).expect(200)).body.data;
+  assert.equal(back.mode, 'tabs');
+
+  // learners can't touch the admin's import
+  await learner.post(`/api/imports/${a.id}/commit-tabs`).send({ newCategory: { title: 'x' }, tabs: [{ id: 't.0' }] }).expect(404);
+
+  const job = (await admin.post(`/api/imports/${a.id}/commit-tabs`).send({
+    newCategory: { title: 'JS Prep' },
+    tabs: [
+      { id: 't.0' },
+      { id: 't.async000' }, { id: 't.promise0', title: 'Promises 101' }, { id: 't.poly0000' },          // Async → Promises → Polyfill (folders)
+      { id: 't.var00000' },                                                                              // parent "Basic…" NOT ticked → moves up
+      { id: 't.call0000', as: 'page' }, { id: 't.callpoly' },                                            // Call as ONE page with its sub-tab inside
+      { id: 't.empty000' },                                                                              // empty → skipped
+    ],
+  }).expect(202)).body.data;
+  assert.equal(job.state, 'running');
+  await admin.post(`/api/imports/${a.id}/commit-tabs`).send({ newCategory: { title: 'x' }, tabs: [{ id: 't.0' }] }).expect(409);
+
+  let status;
+  const seen = new Set();
+  for (let i = 0; i < 200; i += 1) {
+    status = (await admin.get(`/api/imports/${a.id}/status`).expect(200)).body.data;
+    seen.add(status.step);
+    if (status.state !== 'running') break;
+    await new Promise((r) => setTimeout(r, 20));
+  }
+  assert.equal(status.state, 'done', status.error);
+  assert.ok(seen.has('download'), 'progress reported while downloading');
+  assert.deepEqual({ ...status.result, category: undefined }, { category: undefined, categories: 3, pages: 6, images: 2, skipped: 1 });
+  assert.ok(!downloads.slice(1).includes('t.0'), 'the first tab was not downloaded twice');
+  await admin.get(`/api/imports/${a.id}/status`).expect(404); // reported once, then freed
+
+  const tr = (await admin.get('/api/sections').expect(200)).body.data;
+  const kids = (id) => tr.nodes.filter((n) => String(n.parent) === String(id)).sort((x, y) => x.order - y.order);
+  const pages = (id) => tr.pages.filter((p) => String(p.section) === String(id)).sort((x, y) => x.order - y.order).map((p) => p.title);
+  const root = tr.nodes.find((n) => String(n._id) === String(status.result.category));
+  assert.equal(root.title, 'JS Prep');
+  assert.deepEqual(pages(root._id), ['What is JavaScript?', 'var, let and const', 'Call']);
+  const asyncCat = kids(root._id)[0];
+  assert.equal(asyncCat.title, 'Async Operations');
+  assert.deepEqual(pages(asyncCat._id), ['Async Operations'], 'a tab with sub-tabs: category + its own text as the first page');
+  const promCat = kids(asyncCat._id)[0];
+  assert.equal(promCat.title, 'Promises 101');
+  assert.deepEqual(pages(promCat._id), ['Promises 101', 'Promise Polyfill']);
+  assert.equal(kids(root._id).length, 1, 'no category for the unticked "Basic Interview Question" or the empty tab');
+
+  const callId = tr.pages.find((p) => p.title === 'Call')._id;
+  const call = (await admin.get(`/api/questions/${callId}`).expect(200)).body.data;
+  assert.match(call.blocks[0].content, /<p>call text<\/p><h2>Call Polyfill<\/h2><p>call polyfill text<\/p>/, 'sub-tab becomes a section');
+  assert.equal(call.blocks[1].type, 'code');
+
+  const imgOf = async (title) => (await admin.get(`/api/questions/${tr.pages.find((p) => p.title === title)._id}`).expect(200)).body.data.blocks.find((b) => b.type === 'image').content;
+  const [img1, img2] = [await imgOf('Async Operations'), await imgOf('Promise Polyfill')];
+  assert.notEqual(img1, img2, 'same image name in two tabs → two different files');
+  assert.deepEqual(fs.readFileSync(path.join(process.env.UPLOAD_DIR, path.basename(img2))), PNG2);
+  const prom = (await admin.get(`/api/questions/${tr.pages.find((p) => p.title === 'Promises 101')._id}`).expect(200)).body.data;
+  assert.match(prom.blocks[0].content, /<h2>Basics<\/h2><p>A promise is a value later\.<\/p>/);
+});
+
+test('Google Docs: a document without tabs, a document that is not shared, a failing tab', async (t) => {
+  const URL_ = 'https://docs.google.com/document/d/1h-jFJKi9FtdfNHxiKYyoqZ-tvfJaTiIyhMVCJf7JYvI/edit';
+  t.mock.method(google, 'fetchTabs', async () => ({ title: 'Plain doc', tabs: [] }));
+  t.mock.method(google, 'exportDocx', async () => ({ buffer: notesDocx, fileName: 'Plain doc.docx' }));
+  const a = (await admin.post('/api/imports').send({ url: URL_ }).expect(201)).body.data;
+  assert.equal(a.mode, 'document');
+  assert.equal(a.fileName, 'Plain doc');
+  await admin.post(`/api/imports/${a.id}/whole-document`).expect(400);
+  await admin.del(`/api/imports/${a.id}`).expect(200);
+
+  const ApiError = require('../src/utils/ApiError');
+  google.fetchTabs.mock.mockImplementation(async () => { throw ApiError.badRequest('Google did not share this document. …'); });
+  const notShared = await admin.post('/api/imports').send({ url: URL_ }).expect(400);
+  assert.match(notShared.body.message, /did not share/);
+
+  // a tab that keeps failing → the job reports an error and nothing is created
+  google.fetchTabs.mock.mockImplementation(async () => ({ title: 'Doc', tabs: [{ id: 't.aaaaaaaa', title: 'A', path: [0] }, { id: 't.bbbbbbbb', title: 'B', path: [1] }] }));
+  google.exportDocx.mock.mockImplementation(async (id, tab) => { if (tab === 't.bbbbbbbb') throw ApiError.badRequest('Google Docs answered 500. Try again, or upload the file as .docx.'); return { buffer: notesDocx }; });
+  const before = (await admin.get('/api/sections').expect(200)).body.data.nodes.length;
+  const b = (await admin.post('/api/imports').send({ url: URL_ }).expect(201)).body.data;
+  await admin.post(`/api/imports/${b.id}/commit-tabs`).send({ newCategory: { title: 'Broken' }, tabs: [{ id: 't.aaaaaaaa' }, { id: 't.bbbbbbbb' }] }).expect(202);
+  let status;
+  for (let i = 0; i < 300; i += 1) {
+    status = (await admin.get(`/api/imports/${b.id}/status`).expect(200)).body.data;
+    if (status.state !== 'running') break;
+    await new Promise((r) => setTimeout(r, 50));
+  }
+  assert.equal(status.state, 'error');
+  assert.match(status.error, /answered 500/);
+  assert.equal((await admin.get('/api/sections').expect(200)).body.data.nodes.length, before, 'nothing was created');
+});

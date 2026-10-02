@@ -26,3 +26,19 @@ exports.cancel = asyncHandler(async (req, res) => {
   importService.cancel(req.user, req.params.id);
   res.json({ success: true });
 });
+
+exports.commitTabs = asyncHandler(async (req, res) => {
+  res.status(202).json({ success: true, data: importService.commitTabs(req.user, req.params.id, req.body) });
+});
+
+exports.status = asyncHandler(async (req, res) => {
+  res.json({ success: true, data: importService.status(req.user, req.params.id) });
+});
+
+exports.useWholeDocument = asyncHandler(async (req, res) => {
+  res.json({ success: true, data: await importService.useWholeDocument(req.user, req.params.id) });
+});
+
+exports.useTabs = asyncHandler(async (req, res) => {
+  res.json({ success: true, data: importService.useTabs(req.user, req.params.id) });
+});

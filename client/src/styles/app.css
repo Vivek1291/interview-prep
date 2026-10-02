@@ -601,6 +601,13 @@ input[aria-invalid="true"] { border-color: var(--danger); }
 .import-rows .merge.on { background: var(--primary); color: #fff; border-color: var(--primary); }
 .form-actions.sticky { position: sticky; bottom: -18px; background: var(--panel); padding: 10px 0 2px; border-top: 1px solid var(--border); margin-top: 0; }
 @media (max-width: 640px) { .import-rows .meta { display: none; } }
+.import-rows.tabs { max-height: 46vh; }
+.import-rows .row.tab { padding-left: calc(2px + var(--depth, 0) * 24px); }
+.caret-btn { width: 22px; flex: 0 0 22px; border: 0; background: none; cursor: pointer; color: var(--muted); font-size: 13px; padding: 0; }
+.as-select { font: inherit; font-size: 12.5px; padding: 3px 6px; border: 1px solid var(--border); border-radius: 6px; background: var(--panel); color: var(--text); max-width: 46%; }
+.tab-tools { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 8px; }
+.import-switch { margin: 0; }
+@media (max-width: 640px) { .as-select { max-width: 40%; } .import-rows .row.tab { padding-left: calc(2px + var(--depth, 0) * 14px); } }
 
 @media print {
   .sidebar, .topbar, .revise-filters, .note-x, .zoom-btn { display: none !important; }
