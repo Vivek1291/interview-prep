@@ -7,3 +7,6 @@ uploads
 
 # Private source material (kept locally)
 docs/*.pdf
+
+# Exported app data (personal edits; keep local)
+backup-*.json

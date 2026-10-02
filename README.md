@@ -1,13 +1,16 @@
 # 🎯 Full-Stack Interview Prep
 
-A self-hosted study app for **Node.js, Express, REST/Auth, MongoDB, Mongoose, AWS, Full-Stack integration, LLD (frontend, backend and full-stack), JS implementations and DSA**. It ships with **207 questions** ordered by interview importance. Each one includes:
+A self-hosted study app for **Node.js, Express, REST/Auth, MongoDB, Mongoose, AWS, Full-Stack integration, LLD (frontend, backend and full-stack), JS implementations and DSA**. It ships with **207 questions** in 21 sections, ordered by interview importance. Each concept question includes:
 
-- 📖 a detailed answer, with tables, diagrams and charts
-- 💻 complete code you can study, copy, or **▶ Run** in the browser (JS examples)
-- 🧠 **What you must understand**
-- ❓ **Ask the interviewer / be cautious** (clarifying questions and traps)
-- 🔗 links to official docs and LeetCode
-- ⚡ quick-revise notes
+- 🧒 **In simple words**: an everyday analogy first
+- 📖 **Detailed answer** with tables, then 🪜 **Step by step** (what actually happens)
+- 📊 at least two visuals: a Mermaid diagram plus an illustration and/or a chart; charts use **numbers measured** on real software (MongoDB 7, Express 5, Mongoose 9, PM2, S3-compatible storage…), not made-up values
+- 💻 complete code (with "How to run") and a **▶ Run**-able browser demo that checks itself with ✅ / ❌
+- ⚠️ common mistakes, 🧠 what you must understand, ❓ what to ask the interviewer
+- ⭐ **Say this in the interview**: a ready-to-speak answer
+- 🔗 links to official docs, ⚡ quick-revise notes
+
+DSA questions add dry runs and complexity; LLD questions contain complete, runnable projects. The Full-Stack, EC2, S3 and Security sections share one tested project (`fullstack-app/`: Express 5 + Mongoose 9 API, React 19 + TanStack Query web, Docker, deploy scripts).
 
 Everything is editable, and every change is saved to MongoDB, so it's still there after a restart.
 
@@ -103,7 +106,17 @@ interview-prep/
 The default content is seeded **only when the database is empty**, so your edits are never overwritten.
 
 ### Editing the default question bank (optional)
-The seed files in `server/src/seed/content/*.md` use a simple format (`=== Question`, `::: code javascript`, `::: understand`, `::: ask`, …). After changing them, go to **Settings → Reset to default content** (this replaces your current data).
+The seed files in `server/src/seed/content/*.md` use a simple format (`=== Question`, `::: code javascript`, `::: understand`, `::: ask`, `::: image`, …; see `CLAUDE.md` §3). Illustrations live in `client/public/images/<section>/*.svg` (rebuild the web image after adding some).
+
+After changing seed files:
+
+```bash
+node scripts/verify-content.js        # runs every ▶ Run example and checks the format (expect 0 failures, 0 warnings)
+curl -s http://localhost:5050/api/backup/export -o backup-$(date +%Y%m%d-%H%M).json   # back up your edits first
+curl -s -X POST http://localhost:5050/api/backup/reset                                 # load the seed files (replaces current data)
+```
+
+`backup-*.json` files are git-ignored because they contain your personal edits.
 
 ---
 
