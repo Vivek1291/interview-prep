@@ -2,11 +2,14 @@ const mongoose = require('mongoose');
 const app = require('./app');
 const config = require('./config');
 const connectDB = require('./config/db');
-const { seedIfEmpty } = require('./seed');
+const { loadSecrets } = require('./config/secrets');
+const { migrate } = require('./seed/migrate');
 
 async function start() {
   await connectDB();
-  await seedIfEmpty();
+  await mongoose.connection.syncIndexes();   // create the new indexes (tree, owner, progress)
+  await loadSecrets();
+  await migrate();                            // fresh install → seed; old flat data → tree
   const server = app.listen(config.port, () => console.log(`🚀 API listening on http://localhost:${config.port}`));
 
   // Graceful shutdown (docker stop sends SIGTERM)

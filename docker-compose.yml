@@ -22,6 +22,11 @@ services:
     environment:
       MONGO_URI: mongodb://mongo:27017/interview_prep
       PORT: 5050
+      # Optional (accounts / login):
+      # COOKIE_SECURE: "true"            # set when the app is served over HTTPS
+      # JWT_ACCESS_SECRET: change-me     # otherwise generated once and stored in MongoDB
+      # JWT_REFRESH_SECRET: change-me-too
+      # AUTH_RATE_LIMIT: "off"           # disable the login/signup rate limit (20 tries / 15 min)
     volumes:
       - uploads_data:/app/uploads    # uploaded images
     ports:

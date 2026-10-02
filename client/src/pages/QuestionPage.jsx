@@ -3,6 +3,9 @@ import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { DndContext, PointerSensor, closestCenter, useSensor, useSensors } from '@dnd-kit/core';
 import { SortableContext, arrayMove, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { useQuestion, useQuestionMutations, useTree } from '../api/hooks';
+import { useAuth } from '../auth/AuthProvider';
+import { NodeSelect } from '../components/Forms';
+import { Breadcrumb } from './CategoryPage';
 import { useApp } from '../AppContext';
 import { AddBlockMenu, BlockEditor, BlockView } from '../components/blocks/Block';
 import QuickNotes from '../components/QuickNotes';
@@ -24,7 +27,8 @@ export default function QuestionPage() {
   const navigate = useNavigate();
   const { toast } = useApp();
   const { data: question, isLoading, error } = useQuestion(id);
-  const { data: tree = [] } = useTree();
+  const { data: tree } = useTree();
+  const { isAdmin, user } = useAuth();
   const m = useQuestionMutations();
 
   const [editing, setEditing] = useState(false);
@@ -35,11 +39,11 @@ export default function QuestionPage() {
 
   // Remember last visited question for the dashboard "continue" card
   useEffect(() => {
-    if (question) storage.set('lastVisited', { id: question._id, title: question.title });
-  }, [question]);
+    if (question && user) storage.set(`lastVisited:${user._id}`, { id: question._id, title: question.title });
+  }, [question, user]);
 
   const startEdit = useCallback(() => {
-    if (!question) return;
+    if (!question?.canEdit) return;
     setDraft(structuredClone({ title: question.title, tags: question.tags, blocks: question.blocks, section: question.section }));
     setDirty(false);
     setEditing(true);
@@ -84,8 +88,8 @@ export default function QuestionPage() {
     return () => { window.removeEventListener('keydown', onKey); window.removeEventListener('beforeunload', onUnload); };
   }, [editing, dirty, save]);
 
-  const section = tree.find((s) => s._id === question?.section);
-  const flat = useMemo(() => tree.flatMap((s) => s.questions), [tree]);
+  const section = tree?.byId.get(String(question?.section));
+  const flat = useMemo(() => tree?.pages || [], [tree]);
   const idx = flat.findIndex((q) => q._id === id);
   const prev = idx > 0 ? flat[idx - 1] : null;
   const next = idx >= 0 && idx < flat.length - 1 ? flat[idx + 1] : null;
@@ -97,6 +101,8 @@ export default function QuestionPage() {
   const patchDraft = (patch) => { setDraft((d) => ({ ...d, ...patch })); setDirty(true); };
   const setBlocks = (fn) => { setDraft((d) => ({ ...d, blocks: fn(d.blocks) })); setDirty(true); };
   const quick = (patch) => m.update.mutate({ id, ...patch }, { onError: (e) => toast(e.message, 'error') });
+  const progress = (patch) => m.progress.mutate({ id, ...patch }, { onError: (e) => toast(e.message, 'error') });
+  const mine = question.progress || { status: 'new', starred: false, notes: [] };
 
   const cancel = () => {
     if (dirty && !window.confirm('Discard unsaved changes?')) return;
@@ -119,13 +125,9 @@ export default function QuestionPage() {
 
   return (
     <div className="page question-page">
-      <div className="breadcrumb">
-        {section && (
-          <span style={{ color: section.color }}>
-            {section.icon} {section.title}
-          </span>
-        )}
-        {idx >= 0 && <span className="muted"> · {idx + 1} / {flat.length}</span>}
+      <div className="breadcrumb-row">
+        {section && <Breadcrumb path={section.path} />}
+        {question.owner && <span className="private-pill" title="Only you can see this page">🔒 Private</span>}
       </div>
 
       <div className="q-header">
@@ -144,10 +146,12 @@ export default function QuestionPage() {
               </button>
             </>
           ) : (
-            <>
-              <button className="btn btn-primary" onClick={startEdit}>✏️ Edit</button>
-              <button className="btn btn-danger-ghost" onClick={remove} title="Delete question">🗑</button>
-            </>
+            question.canEdit && (
+              <>
+                <button className="btn btn-primary" onClick={startEdit}>✏️ Edit</button>
+                <button className="btn btn-danger-ghost" onClick={remove} title="Delete page">🗑</button>
+              </>
+            )
           )}
         </div>
       </div>
@@ -155,15 +159,15 @@ export default function QuestionPage() {
       <div className="q-meta">
         <div className="stars" title="Interview importance">
           {[1, 2, 3].map((p) => (
-            <button key={p} className={p <= question.priority ? 'on' : ''} onClick={() => quick({ priority: p })}>★</button>
+            <button key={p} className={p <= question.priority ? 'on' : ''} disabled={!question.canEdit} onClick={() => quick({ priority: p })}>★</button>
           ))}
           <span className="muted small">{question.priority === 3 ? 'Must know' : question.priority === 2 ? 'Important' : 'Good to know'}</span>
         </div>
-        <select className={`status-select status-${question.status}`} value={question.status} onChange={(e) => quick({ status: e.target.value })}>
+        <select className={`status-select status-${mine.status}`} value={mine.status} onChange={(e) => progress({ status: e.target.value })} aria-label="My status">
           {STATUSES.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
         </select>
-        <button className={`btn btn-sm ${question.starred ? 'starred' : ''}`} onClick={() => quick({ starred: !question.starred })}>
-          {question.starred ? '★ Starred' : '☆ Star'}
+        <button className={`btn btn-sm ${mine.starred ? 'starred' : ''}`} onClick={() => progress({ starred: !mine.starred })}>
+          {mine.starred ? '★ Starred' : '☆ Star'}
         </button>
         {editing ? (
           <>
@@ -174,9 +178,7 @@ export default function QuestionPage() {
               onChange={(e) => patchDraft({ tags: e.target.value.split(',').map((t) => t.trimStart()) })}
               onBlur={() => patchDraft({ tags: draft.tags.map((t) => t.trim()).filter(Boolean) })}
             />
-            <select value={draft.section} onChange={(e) => patchDraft({ section: e.target.value })} title="Move to section">
-              {tree.map((s) => <option key={s._id} value={s._id}>{s.icon} {s.title}</option>)}
-            </select>
+            <span title="Move to category"><NodeSelect roots={tree?.roots || []} value={draft.section} onChange={(v) => v && patchDraft({ section: v })} isAdmin={isAdmin} /></span>
           </>
         ) : (
           <div className="tags">{question.tags.map((t) => <span key={t} className="tag">#{t}</span>)}</div>
@@ -209,7 +211,7 @@ export default function QuestionPage() {
             {view.blocks.map((b) => <BlockView key={b.id} block={b} />)}
             {!view.blocks.length && (
               <div className="empty">
-                No content yet. <button className="btn btn-primary" onClick={startEdit}>✏️ Start writing</button>
+                No content yet.{question.canEdit && <> <button className="btn btn-primary" onClick={startEdit}>✏️ Start writing</button></>}
               </div>
             )}
           </>
@@ -219,7 +221,7 @@ export default function QuestionPage() {
       <SelectionPopover
         containerRef={contentRef}
         disabled={editing}
-        onAdd={(text) => m.addNote.mutate({ id, text: escapeHtml(text) }, { onSuccess: () => toast('📌 Added to Quick Revise') })}
+        onAdd={(text) => m.addMyNote.mutate({ id, text: escapeHtml(text) }, { onSuccess: () => toast('📌 Added to my Quick Revise notes') })}
       />
 
       {!editing && <QuickNotes question={question} />}

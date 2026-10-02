@@ -1,13 +1,18 @@
-import { useEffect, useState } from 'react';
-import { Route, Routes, useLocation } from 'react-router-dom';
+import { Suspense, lazy, useEffect, useState } from 'react';
+import { Navigate, Route, Routes, useLocation } from 'react-router-dom';
 import Sidebar from './components/Sidebar';
 import TopBar from './components/TopBar';
-import Dashboard from './pages/Dashboard';
-import QuestionPage from './pages/QuestionPage';
-import RevisePage from './pages/RevisePage';
-import SettingsPage from './pages/SettingsPage';
+import AuthPage from './pages/AuthPage';
+import { useAuth } from './auth/AuthProvider';
 
-export default function App() {
+// Each screen is its own chunk: the browser only downloads the code for the page you open.
+const Dashboard = lazy(() => import('./pages/Dashboard'));
+const QuestionPage = lazy(() => import('./pages/QuestionPage'));
+const CategoryPage = lazy(() => import('./pages/CategoryPage'));
+const RevisePage = lazy(() => import('./pages/RevisePage'));
+const SettingsPage = lazy(() => import('./pages/SettingsPage'));
+
+function AppLayout() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const location = useLocation();
   useEffect(() => setSidebarOpen(false), [location.pathname]);
@@ -19,15 +24,28 @@ export default function App() {
       <div className="main">
         <TopBar onMenu={() => setSidebarOpen((o) => !o)} />
         <main className="content">
-          <Routes>
-            <Route path="/" element={<Dashboard />} />
-            <Route path="/q/:id" element={<QuestionPage />} />
-            <Route path="/revise" element={<RevisePage />} />
-            <Route path="/settings" element={<SettingsPage />} />
-            <Route path="*" element={<Dashboard />} />
-          </Routes>
+          <Suspense fallback={<div className="page"><div className="skeleton" /></div>}>
+            <Routes>
+              <Route path="/" element={<Dashboard />} />
+              <Route path="/c/:id" element={<CategoryPage />} />
+              <Route path="/q/:id" element={<QuestionPage />} />
+              <Route path="/revise" element={<RevisePage />} />
+              <Route path="/settings" element={<SettingsPage />} />
+              <Route path="*" element={<Navigate to="/" replace />} />
+            </Routes>
+          </Suspense>
         </main>
       </div>
     </div>
   );
+}
+
+export default function App() {
+  const { status } = useAuth();
+  const location = useLocation();
+
+  if (status === 'checking') return <div className="boot" aria-busy="true">Loading…</div>;
+  if (location.pathname === '/login' || location.pathname === '/signup') return <AuthPage />;
+  if (status === 'anonymous') return <Navigate to="/login" replace state={{ from: location.pathname + location.search }} />;
+  return <AppLayout />;
 }

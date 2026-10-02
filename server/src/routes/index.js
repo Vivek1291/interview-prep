@@ -1,7 +1,12 @@
 const express = require('express');
+const rateLimit = require('express-rate-limit');
+const config = require('../config');
 const validate = require('../middleware/validate');
 const upload = require('../middleware/upload');
+const { authenticate, requireAdmin } = require('../middleware/auth');
 const s = require('../validators/schemas');
+const auth = require('../controllers/authController');
+const users = require('../controllers/userController');
 const sections = require('../controllers/sectionController');
 const questions = require('../controllers/questionController');
 const admin = require('../controllers/adminController');
@@ -11,31 +16,62 @@ const router = express.Router();
 
 router.get('/health', (req, res) => res.json({ status: 'ok', time: new Date().toISOString() }));
 
-// Sections
+// ---- Auth (public) ----
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 20,                                  // 20 attempts per IP per 15 minutes
+  standardHeaders: 'draft-8',
+  legacyHeaders: false,
+  skip: () => !config.rateLimit,
+  handler: (req, res) => res.status(429).json({ success: false, code: 'RATE_LIMITED', message: 'Too many attempts. Try again in a few minutes.' }),
+});
+router.post('/auth/register', authLimiter, validate(s.register), auth.register);
+router.post('/auth/login', authLimiter, validate(s.login), auth.login);
+router.post('/auth/refresh', auth.refresh);
+router.post('/auth/logout', auth.logout);
+
+// ---- Everything below needs a logged-in user ----
+router.use(authenticate);
+router.get('/auth/me', auth.me);
+
+// My account
+router.patch('/users/me', validate(s.profileUpdate), users.updateProfile);
+router.put('/users/me/password', validate(s.passwordChange), users.changePassword);
+router.post('/users/me/avatar', upload.avatarUpload.single('avatar'), users.setAvatar);
+router.delete('/users/me/avatar', users.removeAvatar);
+
+// Tree (categories, any depth)
 router.get('/sections', sections.getTree);
 router.post('/sections', validate(s.sectionCreate), sections.create);
 router.patch('/sections/reorder', validate(s.reorder), sections.reorder); // must be before /:id
+router.get('/sections/:id', sections.get);
 router.put('/sections/:id', validate(s.sectionUpdate), sections.update);
 router.delete('/sections/:id', sections.remove);
 
-// Questions
+// Pages
 router.get('/questions', questions.list);
 router.patch('/questions/reorder', validate(s.reorder), questions.reorder);
 router.get('/questions/:id', questions.getById);
 router.post('/questions', validate(s.questionCreate), questions.create);
 router.put('/questions/:id', validate(s.questionUpdate), questions.update);
 router.delete('/questions/:id', questions.remove);
-router.post('/questions/:id/quick-notes', validate(s.quickNoteCreate), questions.addQuickNote);
-router.delete('/questions/:id/quick-notes/:noteId', questions.removeQuickNote);
+router.post('/questions/:id/quick-notes', validate(s.noteCreate), questions.addAuthorNote);
+router.delete('/questions/:id/quick-notes/:noteId', questions.removeAuthorNote);
 
-// Revision + stats
-router.get('/quick-notes', questions.quickNotes);
-router.get('/stats', questions.stats);
+// My progress (status, star, personal notes) on any visible page
+router.put('/questions/:id/progress', validate(s.progressUpdate), questions.setProgress);
+router.post('/questions/:id/my-notes', validate(s.noteCreate), questions.addMyNote);
+router.delete('/questions/:id/my-notes/:noteId', questions.removeMyNote);
+router.get('/quick-notes', questions.revise);
 
-// Uploads + backup
+// Images inside pages
 router.post('/uploads', upload.single('file'), admin.upload);
-router.get('/backup/export', admin.exportAll);
-router.post('/backup/import', admin.importAll);
-router.post('/backup/reset', admin.reset);
+
+// ---- Admin ----
+router.get('/admin/users', requireAdmin, users.list);
+router.patch('/admin/users/:id', requireAdmin, validate(s.roleUpdate), users.setRole);
+router.get('/backup/export', requireAdmin, admin.exportAll);
+router.post('/backup/import', requireAdmin, admin.importAll);
+router.post('/backup/reset', requireAdmin, admin.reset);
 
 module.exports = router;

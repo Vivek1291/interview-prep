@@ -5,21 +5,28 @@ const multer = require('multer');
 const config = require('../config');
 const ApiError = require('../utils/ApiError');
 
-fs.mkdirSync(config.uploadDir, { recursive: true });
+const avatarDir = path.join(config.uploadDir, 'avatars');
+fs.mkdirSync(avatarDir, { recursive: true });
 
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => cb(null, config.uploadDir),
-  // never trust the client file name — generate our own
-  filename: (req, file, cb) => cb(null, `${Date.now()}-${crypto.randomUUID()}${path.extname(file.originalname).toLowerCase()}`),
+// never trust the client file name — generate our own
+const randomName = (file) => `${Date.now()}-${crypto.randomUUID()}${path.extname(file.originalname).toLowerCase()}`;
+
+const imageFilter = (allowed) => (req, file, cb) =>
+  allowed.includes(file.mimetype) ? cb(null, true) : cb(ApiError.badRequest(`Only ${allowed.map((t) => t.split('/')[1]).join(', ')} images are allowed`));
+
+// Images inside page content (any logged-in user)
+const upload = multer({
+  storage: multer.diskStorage({ destination: (req, file, cb) => cb(null, config.uploadDir), filename: (req, file, cb) => cb(null, randomName(file)) }),
+  limits: { fileSize: 10 * 1024 * 1024 }, // 10 MB
+  fileFilter: imageFilter(['image/png', 'image/jpeg', 'image/gif', 'image/webp', 'image/svg+xml']),
 });
 
-const ALLOWED = ['image/png', 'image/jpeg', 'image/gif', 'image/webp', 'image/svg+xml'];
-
-const upload = multer({
-  storage,
-  limits: { fileSize: 10 * 1024 * 1024 }, // 10 MB
-  fileFilter: (req, file, cb) =>
-    ALLOWED.includes(file.mimetype) ? cb(null, true) : cb(ApiError.badRequest('Only image files are allowed')),
+// Profile pictures: small, and no SVG (SVG files can contain scripts)
+const avatarUpload = multer({
+  storage: multer.diskStorage({ destination: (req, file, cb) => cb(null, avatarDir), filename: (req, file, cb) => cb(null, randomName(file)) }),
+  limits: { fileSize: 2 * 1024 * 1024 }, // 2 MB
+  fileFilter: imageFilter(['image/png', 'image/jpeg', 'image/webp', 'image/gif']),
 });
 
 module.exports = upload;
+module.exports.avatarUpload = avatarUpload;

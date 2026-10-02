@@ -2,24 +2,13 @@
 const asyncHandler = require('../utils/asyncHandler');
 const sectionService = require('../services/sectionService');
 
-exports.getTree = asyncHandler(async (req, res) => {
-  res.json({ success: true, data: await sectionService.getTree() });
-});
-
-exports.create = asyncHandler(async (req, res) => {
-  res.status(201).json({ success: true, data: await sectionService.create(req.body) });
-});
-
-exports.update = asyncHandler(async (req, res) => {
-  res.json({ success: true, data: await sectionService.update(req.params.id, req.body) });
-});
-
-exports.remove = asyncHandler(async (req, res) => {
-  await sectionService.remove(req.params.id);
-  res.status(204).end();
-});
+exports.getTree = asyncHandler(async (req, res) => res.json({ success: true, data: await sectionService.getTree(req.user) }));
+exports.get = asyncHandler(async (req, res) => res.json({ success: true, data: await sectionService.get(req.user, req.params.id) }));
+exports.create = asyncHandler(async (req, res) => res.status(201).json({ success: true, data: await sectionService.create(req.user, req.body) }));
+exports.update = asyncHandler(async (req, res) => res.json({ success: true, data: await sectionService.update(req.user, req.params.id, req.body) }));
+exports.remove = asyncHandler(async (req, res) => res.json({ success: true, data: await sectionService.remove(req.user, req.params.id) }));
 
 exports.reorder = asyncHandler(async (req, res) => {
-  await sectionService.reorder(req.body.ids);
+  await sectionService.reorder(req.user, req.body.ids);
   res.json({ success: true });
 });

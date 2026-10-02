@@ -1,81 +1,90 @@
+// Pages (questions / lessons / articles) inside tree nodes.
 const crypto = require('crypto');
 const questionRepository = require('../repositories/questionRepository');
 const sectionRepository = require('../repositories/sectionRepository');
+const progressRepository = require('../repositories/progressRepository');
 const ApiError = require('../utils/ApiError');
+const { visibleFilter, isVisible, canEdit, ownerFor, assertCanPlaceIn, assertCanEdit } = require('./access');
+
+async function withProgress(user, pages) {
+  const progress = await progressRepository.findForUser(user.id, pages.map((p) => p._id));
+  const mine = new Map(progress.map((p) => [String(p.question), p]));
+  return pages.map((p) => ({ ...p, status: mine.get(String(p._id))?.status || 'new', starred: mine.get(String(p._id))?.starred || false, canEdit: canEdit(user, p) }));
+}
+
+async function findSectionFor(user, sectionId, owner) {
+  const section = await sectionRepository.findById(sectionId);
+  if (!section) throw ApiError.notFound('Category not found');
+  assertCanPlaceIn(user, section, owner);
+  return section;
+}
 
 const questionService = {
-  list({ search, section }) {
-    if (search && search.trim()) return questionRepository.search(search.trim());
-    return questionRepository.findSummaries(section ? { section } : {});
+  async search(user, term) {
+    return withProgress(user, await questionRepository.search(term, visibleFilter(user)));
   },
 
-  async getById(id) {
+  async listInSection(user, sectionId) {
+    return withProgress(user, await questionRepository.findSummaries({ $and: [visibleFilter(user), { section: sectionId }] }));
+  },
+
+  async getById(user, id) {
     const q = await questionRepository.findById(id);
-    if (!q) throw ApiError.notFound('Question not found');
-    return q;
+    if (!isVisible(user, q)) throw ApiError.notFound('Page not found');
+    const p = await progressRepository.findOne(user.id, id);
+    return { ...q, canEdit: canEdit(user, q), progress: { status: p?.status || 'new', starred: p?.starred || false, notes: p?.notes || [] } };
   },
 
-  async create(data) {
-    const section = await sectionRepository.findById(data.section);
-    if (!section) throw ApiError.badRequest('Section does not exist');
+  async create(user, data) {
+    const owner = ownerFor(user);
+    await findSectionFor(user, data.section, owner);
     const order = (await questionRepository.maxOrderInSection(data.section)) + 1;
     const blocks = data.blocks?.length
       ? data.blocks
       : [{ id: crypto.randomUUID(), type: 'text', title: 'Answer', content: '<p>Write your answer here…</p>' }];
-    return questionRepository.create({ ...data, blocks, order });
+    const q = await questionRepository.create({ ...data, blocks, order, owner });
+    return { ...q.toObject(), canEdit: true };
   },
 
-  async update(id, data) {
-    if (data.section) {
-      const section = await sectionRepository.findById(data.section);
-      if (!section) throw ApiError.badRequest('Section does not exist');
+  async update(user, id, data) {
+    const q = await questionRepository.findById(id);
+    assertCanEdit(user, q, 'page');
+    if (data.section && String(data.section) !== String(q.section)) {
+      await findSectionFor(user, data.section, q.owner);
+      data.order = (await questionRepository.maxOrderInSection(data.section)) + 1;
     }
     const updated = await questionRepository.update(id, data);
-    if (!updated) throw ApiError.notFound('Question not found');
-    return updated;
+    return questionService.getById(user, updated._id);
   },
 
-  async remove(id) {
-    const deleted = await questionRepository.delete(id);
-    if (!deleted) throw ApiError.notFound('Question not found');
-    return deleted;
+  async remove(user, id) {
+    const q = await questionRepository.findById(id);
+    assertCanEdit(user, q, 'page');
+    await questionRepository.delete(id);
+    await progressRepository.deleteMany({ question: id });
   },
 
-  reorder: (ids, sectionId) => questionRepository.reorder(ids, sectionId),
-
-  async addQuickNote(id, { text, color }) {
-    const note = { id: crypto.randomUUID(), text, color: color || '#fde68a' };
-    const updated = await questionRepository.pushQuickNote(id, note);
-    if (!updated) throw ApiError.notFound('Question not found');
-    return updated;
+  async reorder(user, ids) {
+    const pages = await questionRepository.find({ _id: { $in: ids } }, 'section owner');
+    if (pages.length !== ids.length) throw ApiError.notFound('Page not found');
+    if (new Set(pages.map((p) => String(p.section))).size > 1) throw ApiError.badRequest('Pages must be in the same category');
+    if (pages.some((p) => !canEdit(user, p))) throw ApiError.forbidden('Only admins can reorder shared pages');
+    await questionRepository.reorder(ids);
   },
 
-  async removeQuickNote(id, noteId) {
-    const updated = await questionRepository.pullQuickNote(id, noteId);
-    if (!updated) throw ApiError.notFound('Question not found');
-    return updated;
+  // The author's quick-revise notes are part of the page content: only editors change them.
+  async addAuthorNote(user, id, { text, color }) {
+    const q = await questionRepository.findById(id);
+    assertCanEdit(user, q, 'page');
+    await questionRepository.pushQuickNote(id, { id: crypto.randomUUID(), text, color: color || '#fde68a' });
+    return questionService.getById(user, id);
   },
 
-  quickNotes: (sectionId) => questionRepository.quickNotes(sectionId),
-
-  async stats() {
-    const [sections, rows, total] = await Promise.all([
-      sectionRepository.findAll(),
-      questionRepository.stats(),
-      questionRepository.count(),
-    ]);
-    const map = new Map(rows.map((r) => [String(r._id), r]));
-    return {
-      total,
-      sections: sections.map((s) => {
-        const r = map.get(String(s._id)) || { total: 0, statuses: {} };
-        return {
-          _id: s._id, title: s.title, icon: s.icon, color: s.color, total: r.total,
-          new: r.statuses.new || 0, learning: r.statuses.learning || 0,
-          revise: r.statuses.revise || 0, confident: r.statuses.confident || 0,
-        };
-      }),
-    };
+  async removeAuthorNote(user, id, noteId) {
+    const q = await questionRepository.findById(id);
+    assertCanEdit(user, q, 'page');
+    await questionRepository.pullQuickNote(id, noteId);
+    return questionService.getById(user, id);
   },
 };
 

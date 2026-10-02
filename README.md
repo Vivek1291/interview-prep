@@ -25,7 +25,7 @@ Everything is editable, and every change is saved to MongoDB, so it's still ther
 docker compose up -d --build
 ```
 
-3. Open **http://localhost:3000**
+3. Open **http://localhost:3000** and **sign up**. 👑 **The first account becomes the admin.** Everyone who signs up after that is a learner.
 
 The first build takes a few minutes because it downloads Node, MongoDB and the npm packages. After that, starting takes seconds.
 
@@ -44,13 +44,18 @@ docker compose logs -f api    # see API logs
 docker compose up -d --build  # rebuild after changing code
 ```
 
-> ⚠️ `docker compose down -v` **deletes the volumes**, which means ALL your edits. Export a backup first (Settings → Export).
+> ⚠️ `docker compose down -v` **deletes the volumes**: all accounts, private pages, progress and edits. Settings → Export (admin) backs up only the **shared** content.
 
 ---
 
 ## ✨ Features
 
-- **Sections & questions**: add, edit, delete and **drag to reorder** (⋮⋮ handle in the sidebar). Use ＋ / ✎ / 🗑 on a section header.
+- **🗂️ Category tree** (any depth): **Frontend** → JavaScript → Polyfills → …, **Backend** → Node.js / Java / Databases (MongoDB, SQL, PostgreSQL, Redis) / Common, **System Design** → Frontend / Backend / Full-Stack / Common, **DevOps**, **Testing**, **DSA**. Click a category to see its overview (sub-topics, pages, progress). Hover a category in the sidebar and press **＋** to add a sub-category or a page.
+- **👥 Accounts & roles**: sign up / log in, profile with **avatar**, name and password in Settings.
+  - **Admin**: what they create or edit is **shared**; every user sees it, read-only. Admins also manage roles, backups and reset (Settings).
+  - **Everyone**: can create **🔒 private** categories and pages anywhere (even inside shared categories); only they can see and edit them.
+  - **Progress is per user**: status, ★ star and personal Quick-Revise notes are yours alone.
+- **Categories & pages**: add, edit, move, delete and **drag to reorder** (⋮⋮ handle in the sidebar).
 - **Block editor** (click ✏️ Edit on a question):
   - 📖 **Rich text**: bold, italic, underline, **highlight colours**, **text colours**, headings, lists, quotes, links, tables
   - 🖍️ **Highlight / note boxes**: Note, Tip, Important, Warning, Understand, Ask-interviewer, or a custom box
@@ -60,12 +65,12 @@ docker compose up -d --build  # rebuild after changing code
   - 📊 **Charts** (bar / line / area from simple CSV)
   - 🖼️ **Images** (upload or paste a URL) and 🔗 **links**
   - Drag, move up/down, duplicate, delete and fold blocks. **Ctrl/Cmd + S** saves.
-- **⚡ Quick Revise**: every quick note in one page, filterable by section, must-know only, printable. **Select any text** in a question → **📌 Add to Quick Revise**.
+- **⚡ Quick Revise**: the page's notes plus your own, in one page, filterable by category (including its sub-categories), must-know only, printable. **Select any text** in a question → **📌 Add to Quick Revise**.
 - **🏋️ Practice mode** (top bar) blurs the solutions until you click, so you try first.
 - **▶ Run**: runs plain JavaScript examples in a sandboxed web worker and shows the console output.
 - **Progress tracking**: status per question (Not started / Learning / Needs revision / Confident), ⭐ importance, ★ starred, and a dashboard chart.
 - **Search** across titles, content, code and notes. Filters: Must-know, Starred, To learn.
-- **Backup**: Export / Import JSON, or Reset to the default content (Settings).
+- **Backup** (admin): Export / Import the shared content as JSON, or Reset it to the default content (Settings). Private content and progress survive a reset.
 - Light / dark theme, and it works on mobile.
 
 ---
@@ -78,7 +83,7 @@ React (Vite) + React Query + Tiptap editor + Mermaid + Recharts
         ▼
 Nginx  (serves the React build, reverse-proxies /api and /uploads)
         ▼
-Express API  routes → controllers → services → repositories   (zod validation,
+Express API  routes → controllers → services → repositories   (zod validation, JWT auth,
         │                                                       error middleware, multer uploads)
         ▼
 MongoDB (Mongoose models; question blocks are EMBEDDED; aggregation for stats / revise page)
@@ -95,15 +100,25 @@ interview-prep/
     └── src/
         ├── api/ (axios client + React Query hooks)
         ├── components/ (Sidebar, blocks/*: RichTextEditor, CodeBlock, DiagramBlock, ChartBlock…)
-        └── pages/ (Dashboard, QuestionPage, RevisePage, SettingsPage)
+        ├── auth/ (AuthProvider: session, login, signup, logout)
+        └── pages/ (lazy-loaded: Dashboard, CategoryPage, QuestionPage, RevisePage, SettingsPage, AuthPage)
 ```
 
 ### How content is stored
-- `sections` collection: `{ title, icon, color, description, order }`
-- `questions` collection: `{ section, title, priority, tags, status, starred, order, blocks[], quickNotes[] }`
+- `sections`: the category tree: `{ title, icon, color, description, parent, owner, order, key }`. `owner: null` = shared (admin) content, `owner: <userId>` = private.
+- `questions` (pages): `{ section, owner, title, priority, tags, order, blocks[], quickNotes[] }`
+- `progresses`: per user and page: `{ user, question, status, starred, notes[] }`
+- `users`: `{ name, email, passwordHash, role: admin|user, avatarUrl }`
 - Each block: `{ id, type: text|callout|code|diagram|chart|image|links, title, content, color, variant, lang, chartType }`
 
-The default content is seeded **only when the database is empty**, so your edits are never overwritten.
+The default content is seeded **only when the database is empty**, so your edits are never overwritten. A database from the older single-user version is migrated automatically on start (sections are moved into the new tree; the old progress is given to the first admin).
+
+### 🔐 Authentication
+- Short-lived **JWT access token** (15 min, kept in memory) + **refresh token** in an `httpOnly` cookie (30 days, rotated on every use; a reused token logs out all sessions).
+- Passwords are hashed with **bcrypt**. Login and signup are rate-limited.
+- The JWT secrets are generated on first start and stored in MongoDB. To manage them yourself, set `JWT_ACCESS_SECRET` and `JWT_REFRESH_SECRET` on the `api` service.
+- If you serve the app over **HTTPS**, set `COOKIE_SECURE=true` on the `api` service.
+- Forgot the admin password? Another admin can't see it either. Promote a second account to admin in Settings beforehand, or reset the data (`down -v`, see below).
 
 ### Editing the default question bank (optional)
 The seed files in `server/src/seed/content/*.md` use a simple format (`=== Question`, `::: code javascript`, `::: understand`, `::: ask`, `::: image`, …; see `CLAUDE.md` §3). Illustrations live in `client/public/images/<section>/*.svg` (rebuild the web image after adding some).
@@ -112,9 +127,9 @@ After changing seed files:
 
 ```bash
 node scripts/verify-content.js        # runs every ▶ Run example and checks the format (expect 0 failures, 0 warnings)
-curl -s http://localhost:5050/api/backup/export -o backup-$(date +%Y%m%d-%H%M).json   # back up your edits first
-curl -s -X POST http://localhost:5050/api/backup/reset                                 # load the seed files (replaces current data)
 ```
+
+Then, logged in as an admin: **Settings → Export** (back up first), then **Settings → Reset** to load the seed files. Reset replaces the **shared** content; private content and everyone's progress are kept. (The curl equivalent with a token is in `CLAUDE.md`.)
 
 `backup-*.json` files are git-ignored because they contain your personal edits.
 
@@ -127,7 +142,8 @@ curl -s -X POST http://localhost:5050/api/backup/reset                          
 | `port is already allocated` | Change the left-hand port in `docker-compose.yml` (e.g. `"3001:80"`, `"5051:5050"`, `"27019:27017"`) |
 | Page loads but says "Is the API running?" | `docker compose logs api`; the API waits for MongoDB to be healthy on the first start |
 | Build fails on `npm install` | Check your internet / proxy, then `docker compose build --no-cache` |
-| Want to start fresh | Settings → Reset, or `docker compose down -v && docker compose up -d --build` |
+| Want to start fresh | Settings → Reset (shared content only), or `docker compose down -v && docker compose up -d --build` (⚠️ deletes **all** accounts and data) |
+| "Too many attempts" on login | Wait 15 minutes (rate limit), or set `AUTH_RATE_LIMIT=off` on the `api` service |
 
 ### Local development without Docker (optional)
 ```bash
@@ -136,3 +152,10 @@ cd server && npm install && MONGO_URI=mongodb://localhost:27017/interview_prep n
 # terminal 2
 cd client && npm install && npm run dev   # http://localhost:5173 (proxies /api to :5050)
 ```
+
+### Tests
+```bash
+cd server && npm install
+MONGO_URI=mongodb://localhost:27018/learning_hub_test npm test   # API tests (auth, roles, private content, tree, progress, reset, migration)
+```
+Use a database name that is **not** `interview_prep`: the tests drop their database.
