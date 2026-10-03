@@ -241,7 +241,7 @@ function SharedContentCard() {
 }
 
 export default function SettingsPage() {
-  const { theme, setTheme } = useApp();
+  const { theme, setTheme, termLinks, setTermLinks } = useApp();
   const { isAdmin } = useAuth();
   return (
     <div className="page settings">
@@ -254,6 +254,10 @@ export default function SettingsPage() {
           <button className={`btn ${theme === 'light' ? 'btn-primary' : ''}`} onClick={() => setTheme('light')}>☀️ Light</button>
           <button className={`btn ${theme === 'dark' ? 'btn-primary' : ''}`} onClick={() => setTheme('dark')}>🌙 Dark</button>
         </div>
+        <label className="check-row">
+          <input type="checkbox" checked={termLinks} onChange={(e) => setTermLinks(e.target.checked)} />
+          <span>📖 Link glossary terms inside pages <span className="muted small">(click “libuv” in a page to read its explanation)</span></span>
+        </label>
       </div>
       {isAdmin && <UsersCard />}
       {isAdmin && <SharedContentCard />}

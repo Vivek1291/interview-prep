@@ -3,6 +3,7 @@ import { Navigate, Route, Routes, useLocation } from 'react-router-dom';
 import Sidebar from './components/Sidebar';
 import TopBar from './components/TopBar';
 import AuthPage from './pages/AuthPage';
+import TermPanel from './components/TermPanel';
 import { useAuth } from './auth/AuthProvider';
 
 // Each screen is its own chunk: the browser only downloads the code for the page you open.
@@ -11,6 +12,8 @@ const QuestionPage = lazy(() => import('./pages/QuestionPage'));
 const CategoryPage = lazy(() => import('./pages/CategoryPage'));
 const RevisePage = lazy(() => import('./pages/RevisePage'));
 const SettingsPage = lazy(() => import('./pages/SettingsPage'));
+const TermsPage = lazy(() => import('./pages/TermsPage'));
+const TermPage = lazy(() => import('./pages/TermPage'));
 
 function AppLayout() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -31,11 +34,14 @@ function AppLayout() {
               <Route path="/q/:id" element={<QuestionPage />} />
               <Route path="/revise" element={<RevisePage />} />
               <Route path="/settings" element={<SettingsPage />} />
+              <Route path="/terms" element={<TermsPage />} />
+              <Route path="/terms/:id" element={<TermPage />} />
               <Route path="*" element={<Navigate to="/" replace />} />
             </Routes>
           </Suspense>
         </main>
       </div>
+      <TermPanel />
     </div>
   );
 }

@@ -9,6 +9,8 @@ export const keys = {
   search: (q) => ['search', q],
   quickNotes: (n) => ['quickNotes', n || 'all'],
   users: ['users'],
+  terms: ['terms'],
+  term: (id) => ['term', id],
 };
 
 // buildTree links nodes both ways (children ↔ path), so the result has cycles: React Query's
@@ -17,6 +19,17 @@ export const useTree = () => useQuery({ queryKey: keys.tree, queryFn: api.tree, 
 export const useQuestion = (id) => useQuery({ queryKey: keys.question(id), queryFn: () => api.question(id), enabled: !!id });
 export const useSearch = (q) => useQuery({ queryKey: keys.search(q), queryFn: () => api.search(q), enabled: q.trim().length > 1 });
 export const useQuickNotes = (node) => useQuery({ queryKey: keys.quickNotes(node), queryFn: () => api.quickNotes(node) });
+export const useTerms = () => useQuery({ queryKey: keys.terms, queryFn: api.terms, staleTime: 60 * 1000 });
+export const useTerm = (id) => useQuery({ queryKey: keys.term(id), queryFn: () => api.term(id), enabled: !!id });
+export function useTermMutations() {
+  const qc = useQueryClient();
+  const done = (id) => { qc.invalidateQueries({ queryKey: keys.terms }); if (id) qc.invalidateQueries({ queryKey: keys.term(id) }); };
+  return {
+    create: useMutation({ mutationFn: api.createTerm, onSuccess: (t) => done(t._id) }),
+    update: useMutation({ mutationFn: ({ id, ...body }) => api.updateTerm(id, body), onSuccess: (t) => { qc.setQueryData(keys.term(t._id), t); done(); } }),
+    remove: useMutation({ mutationFn: api.deleteTerm, onSuccess: (_, id) => { qc.removeQueries({ queryKey: keys.term(id) }); done(); } }),
+  };
+}
 export const useUsers = (enabled) => useQuery({ queryKey: keys.users, queryFn: api.users, enabled });
 
 function useInvalidate() {

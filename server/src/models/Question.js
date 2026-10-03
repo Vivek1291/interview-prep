@@ -51,3 +51,4 @@ QuestionSchema.index({ section: 1, order: 1 });
 QuestionSchema.index({ owner: 1 });
 
 module.exports = mongoose.model('Question', QuestionSchema);
+module.exports.BlockSchema = BlockSchema;

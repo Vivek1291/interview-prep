@@ -11,6 +11,7 @@ const sections = require('../controllers/sectionController');
 const questions = require('../controllers/questionController');
 const admin = require('../controllers/adminController');
 const imports = require('../controllers/importController');
+const terms = require('../controllers/termController');
 
 // Router-level middleware / routes. Mounted at /api/v1 (API versioning) and /api.
 const router = express.Router();
@@ -67,6 +68,13 @@ router.get('/quick-notes', questions.revise);
 
 // Images inside pages
 router.post('/uploads', upload.single('file'), admin.upload);
+
+// Glossary terms (shared or private), linked automatically inside pages
+router.get('/terms', terms.list);
+router.post('/terms', validate(s.termCreate), terms.create);
+router.get('/terms/:id', terms.get);
+router.put('/terms/:id', validate(s.termUpdate), terms.update);
+router.delete('/terms/:id', terms.remove);
 
 // Import a prepared document (.docx upload or Google Docs link) as categories + pages
 router.post('/imports', upload.documentUpload.single('file'), imports.start);

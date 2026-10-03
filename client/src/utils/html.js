@@ -13,3 +13,9 @@ export const stripHtml = (html) => {
   d.innerHTML = html;
   return d.textContent || '';
 };
+
+/** Escaped text with **bold** and `code` (used for term summaries). */
+export const inlineMarkdown = (s = '') =>
+  escapeHtml(s)
+    .replace(/`([^`]+)`/g, '<code>$1</code>')
+    .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');

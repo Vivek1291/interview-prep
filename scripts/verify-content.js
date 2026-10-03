@@ -21,6 +21,7 @@ const { spawn, spawnSync } = require('child_process');
 
 const ROOT = path.resolve(__dirname, '..');
 const CONTENT_DIR = process.env.CONTENT_DIR || path.join(ROOT, 'server/src/seed/content');
+const TERMS_FILE = path.join(ROOT, 'server/src/seed/terms.md');   // glossary: format checks only, no content standard
 const PUBLIC_DIR = path.join(ROOT, 'client/public');
 const RUNJS_FILE = path.join(ROOT, 'client/src/utils/runJs.js');
 const { parseFile } = require(path.join(ROOT, 'server/src/seed/parser.js'));
@@ -407,6 +408,7 @@ function standardWarnings(kind, q, warn) {
 // ---------------------------------------------------------------------------
 async function main() {
   const files = fs.readdirSync(CONTENT_DIR).filter((f) => f.endsWith('.md') && f.includes(filter)).sort();
+  if (!process.env.CONTENT_DIR && fs.existsSync(TERMS_FILE) && 'terms.md'.includes(filter)) files.push('terms.md');
   if (!files.length) { console.log(`No content files match "${filter}"`); process.exit(1); }
 
   const globalFailures = [];
@@ -420,8 +422,9 @@ async function main() {
   const report = [];
 
   for (const file of files) {
-    const text = fs.readFileSync(path.join(CONTENT_DIR, file), 'utf8');
-    const kind = kindOf(file);
+    const isTerms = file === 'terms.md';
+    const text = isTerms ? `@section Terms\n${fs.readFileSync(TERMS_FILE, 'utf8')}` : fs.readFileSync(path.join(CONTENT_DIR, file), 'utf8');
+    const kind = isTerms ? 'terms' : kindOf(file);
     const failures = [];
     const warnings = [];
     let parsed;
@@ -461,7 +464,7 @@ async function main() {
           b.body.split('\n').filter((l) => l.trim()).forEach((l) => { if (!/^[^|]+\|\s*https?:\/\/\S+\s*$/.test(l.trim())) fail(`${w}: link line must be "Label | https://url" → ${l.trim()}`); });
         }
       }
-      standardWarnings(kind, q, (x) => qWarn.push(x));
+      if (kind !== 'terms') standardWarnings(kind, q, (x) => qWarn.push(x));
       if ((kind === 'dsa' && !q.tags.includes('meta')) || kind === 'lld') {
         if (!runnableWithCheck) qWarn.push('no browser-runnable example with ✅/❌ self-tests');
       }

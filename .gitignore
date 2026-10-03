@@ -16,3 +16,6 @@ CLAUDE.md
 SPECS.md
 .claude/
 .wip-content/
+
+# full database backups (mongodump)
+backup-*.archive

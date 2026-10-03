@@ -1,18 +1,18 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
-import { DndContext, PointerSensor, closestCenter, useSensor, useSensors } from '@dnd-kit/core';
-import { SortableContext, arrayMove, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { useQuestion, useQuestionMutations, useTree } from '../api/hooks';
 import { useAuth } from '../auth/AuthProvider';
 import { NodeSelect } from '../components/Forms';
 import { Breadcrumb } from './CategoryPage';
 import { useApp } from '../AppContext';
-import { AddBlockMenu, BlockEditor, BlockView } from '../components/blocks/Block';
+import { BlockView } from '../components/blocks/Block';
+import BlocksEditor from '../components/blocks/BlocksEditor';
+import TermFormModal from '../components/TermFormModal';
+import { useTermLinks } from '../utils/termLinks';
 import QuickNotes from '../components/QuickNotes';
 import SelectionPopover from '../components/SelectionPopover';
 import { escapeHtml } from '../utils/html';
 import { storage } from '../utils/storage';
-import { uid } from '../utils/id';
 
 const STATUSES = [
   { value: 'new', label: '○ Not started' },
@@ -35,7 +35,8 @@ export default function QuestionPage() {
   const [draft, setDraft] = useState(null);
   const [dirty, setDirty] = useState(false);
   const contentRef = useRef(null);
-  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
+  const [newTerm, setNewTerm] = useState(null);       // text selected for "Add as term"
+  useTermLinks(contentRef, { active: !editing, content: question?.blocks });   // glossary terms become clickable
 
   // Remember last visited question for the dashboard "continue" card
   useEffect(() => {
@@ -116,11 +117,6 @@ export default function QuestionPage() {
     m.remove.mutate(id, { onSuccess: () => { toast('Question deleted'); navigate(next ? `/q/${next._id}` : '/'); } });
   };
 
-  const onDragEnd = ({ active, over }) => {
-    if (!over || active.id === over.id) return;
-    setBlocks((blocks) => arrayMove(blocks, blocks.findIndex((b) => b.id === active.id), blocks.findIndex((b) => b.id === over.id)));
-  };
-
   const view = editing ? draft : question;
 
   return (
@@ -187,25 +183,7 @@ export default function QuestionPage() {
 
       <div className="blocks" ref={contentRef}>
         {editing ? (
-          <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
-            <SortableContext items={draft.blocks.map((b) => b.id)} strategy={verticalListSortingStrategy}>
-              <AddBlockMenu compact onAdd={(b) => setBlocks((bl) => [b, ...bl])} />
-              {draft.blocks.map((b, i) => (
-                <div key={b.id}>
-                  <BlockEditor
-                    block={b}
-                    index={i}
-                    total={draft.blocks.length}
-                    onChange={(nb) => setBlocks((bl) => bl.map((x) => (x.id === b.id ? nb : x)))}
-                    onMove={(dir) => setBlocks((bl) => arrayMove(bl, i, i + dir))}
-                    onDuplicate={() => setBlocks((bl) => [...bl.slice(0, i + 1), { ...structuredClone(b), id: uid() }, ...bl.slice(i + 1)])}
-                    onDelete={() => window.confirm('Delete this block?') && setBlocks((bl) => bl.filter((x) => x.id !== b.id))}
-                  />
-                  <AddBlockMenu compact onAdd={(nb) => setBlocks((bl) => [...bl.slice(0, i + 1), nb, ...bl.slice(i + 1)])} />
-                </div>
-              ))}
-            </SortableContext>
-          </DndContext>
+          <BlocksEditor blocks={draft.blocks} setBlocks={setBlocks} />
         ) : (
           <>
             {view.blocks.map((b) => <BlockView key={b.id} block={b} />)}
@@ -222,7 +200,9 @@ export default function QuestionPage() {
         containerRef={contentRef}
         disabled={editing}
         onAdd={(text) => m.addMyNote.mutate({ id, text: escapeHtml(text) }, { onSuccess: () => toast('📌 Added to my Quick Revise notes') })}
+        onAddTerm={(text) => setNewTerm(text)}
       />
+      {newTerm != null && <TermFormModal selection={newTerm} onClose={() => setNewTerm(null)} />}
 
       {!editing && <QuickNotes question={question} />}
 

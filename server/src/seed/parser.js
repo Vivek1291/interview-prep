@@ -6,6 +6,7 @@
 //   @p 3                       (priority 1-3)
 //   @tags a, b
 //   @quick                     (quick-revise notes, one "- " line each, until blank line)
+//   @aliases a, b / @summary …  (glossary terms only: seed/terms.md)
 //   - note one
 //   ::: <type> [lang|chartType] [Optional custom title]
 //   ...raw content...
@@ -77,6 +78,8 @@ function parseFile(text, fileName = '') {
       questions.push(q);
     } else if (q && (m = line.match(/^@p\s+(\d)/))) q.priority = Number(m[1]);
     else if (q && (m = line.match(/^@tags\s+(.*)$/))) q.tags = m[1].split(',').map((t) => t.trim()).filter(Boolean);
+    else if (q && (m = line.match(/^@aliases\s+(.*)$/))) q.aliases = m[1].split(',').map((t) => t.trim()).filter(Boolean);   // glossary terms
+    else if (q && (m = line.match(/^@summary\s+(.*)$/))) q.summary = m[1].trim();
     else if (q && line.startsWith('@quick')) {
       i++;
       while (i < lines.length && lines[i].trim().startsWith('- ')) {

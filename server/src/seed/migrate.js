@@ -8,9 +8,11 @@
 const mongoose = require('mongoose');
 const Meta = require('../models/Meta');
 const Section = require('../models/Section');
-const { defaultNodes, seedIfEmpty, UNCATEGORISED } = require('./index');
+const { defaultNodes, seedIfEmpty, insertDefaultTerms, addMissingDefaults, UNCATEGORISED } = require('./index');
 
-const CURRENT = 2;
+const CURRENT = 3;
+// v3 (Oct 2026): glossary terms + React sections (files 22-26) added to existing databases
+const V3_FILES = ['22-react-fundamentals.md', '23-react-hooks.md', '24-react-performance.md', '25-react-suspense.md', '26-react-19.md'];
 
 async function getVersion() {
   return (await Meta.findById('schemaVersion').lean())?.value ?? null;
@@ -70,11 +72,18 @@ async function migrate() {
   if (version === CURRENT) return;
   if (version == null && (await Section.countDocuments()) === 0) {
     await seedIfEmpty();                                // fresh install: seed straight into the new schema
-  } else if (version == null || version < 2) {
-    const r = await migrateToV2();
-    console.log(`🔁 Migrated to v2: ${r.placed} sections placed in the tree, ${r.uncategorised} uncategorised, ${r.stashedProgress} progress rows kept for the first admin`);
+  } else {
+    if (version == null || version < 2) {
+      const r = await migrateToV2();
+      console.log(`🔁 Migrated to v2: ${r.placed} sections placed in the tree, ${r.uncategorised} uncategorised, ${r.stashedProgress} progress rows kept for the first admin`);
+    }
+    if (version == null || version < 3) {
+      const r = await addMissingDefaults(V3_FILES);
+      const terms = await insertDefaultTerms(new Map(), { onlyMissing: true });
+      console.log(`🔁 Migrated to v3: ${r.addedNodes} new categories, ${r.addedPages} new pages, ${terms} glossary terms (nothing existing was changed)`);
+    }
   }
   await setVersion(CURRENT);
 }
 
-module.exports = { migrate, CURRENT };
+module.exports = { migrate, CURRENT, V3_FILES };

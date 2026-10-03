@@ -1,6 +1,6 @@
 # 🎯 Full-Stack Interview Prep
 
-A self-hosted study app for **Node.js, Express, REST/Auth, MongoDB, Mongoose, AWS, Full-Stack integration, LLD (frontend, backend and full-stack), JS implementations and DSA**. It ships with **207 questions** in 21 sections, ordered by interview importance. Each concept question includes:
+A self-hosted study app for **Node.js, Express, REST/Auth, MongoDB, Mongoose, AWS, Full-Stack integration, LLD (frontend, backend and full-stack), JS implementations and DSA**. It ships with **243 questions** in 26 sections (including React: fundamentals, hooks, performance, Suspense & concurrent rendering, React 19) and 26 glossary terms, ordered by interview importance. Each concept question includes:
 
 - 🧒 **In simple words**: an everyday analogy first
 - 📖 **Detailed answer** with tables, then 🪜 **Step by step** (what actually happens)
@@ -67,6 +67,7 @@ docker compose up -d --build  # rebuild after changing code
   - Drag, move up/down, duplicate, delete and fold blocks. **Ctrl/Cmd + S** saves.
 - **📥 Import your own notes** (Word **.docx** or a **Google Docs link**): click **📥 Import** on a category (or ＋ in the sidebar → Import a document). Choose how to split it: lines starting with **“Q)”** (or any text you type), **Heading 1 / 2 / 3** (higher headings become sub-categories), or one page. A live preview lets you rename pages, **⤴ merge** a page into the one above, or leave pages out. Monospace text becomes ▶ code blocks; images, tables, lists, links, bold and colours are kept. Admins import shared content; everyone else imports privately. Google Docs links must be shared as “Anyone with the link”.
   - **Google Docs with tabs** keep their structure: you get the tab tree (tab → sub-tab → sub-sub-tab) with checkboxes. Every tab becomes a page; a tab with sub-tabs becomes a sub-category (its own text is the first page) or, if you choose, **one page** with the sub-tabs as sections. A 99-tab document imports in about 40 seconds, with progress. (A downloaded .docx loses the tabs, so use the link.)
+- **📖 Terms (glossary)**: short explanations of words that keep coming up (libuv, hydration, idempotent, JWT…), 26 included. Terms are **linked automatically** inside pages (first mention, dotted underline): click one to read it in a side panel without leaving the page. Open **📖 Terms** in the top bar for the A–Z list and search, select any word on a page → **📖 Add as term** to create your own (private, or shared if you're an admin), and edit terms with the same block editor as pages. Turn the links off in Settings.
 - **🔍 Zoom** any image, diagram or chart: click it (or the ⤢ Zoom button) for a full-screen view. Scroll or pinch to zoom, drag to move, double-click to zoom in, `+` / `-` / `0` / `1` keys, Esc to close. SVGs and charts are re-drawn at the zoom level, so they stay sharp.
 - **⚡ Quick Revise**: the page's notes plus your own, in one page, filterable by category (including its sub-categories), must-know only, printable. **Select any text** in a question → **📌 Add to Quick Revise**.
 - **🏋️ Practice mode** (top bar) blurs the solutions until you click, so you try first.
@@ -114,7 +115,7 @@ interview-prep/
 - `users`: `{ name, email, passwordHash, role: admin|user, avatarUrl }`
 - Each block: `{ id, type: text|callout|code|diagram|chart|image|links, title, content, color, variant, lang, chartType }`
 
-The default content is seeded **only when the database is empty**, so your edits are never overwritten. A database from the older single-user version is migrated automatically on start (sections are moved into the new tree; the old progress is given to the first admin).
+The default content is seeded **only when the database is empty**, so your edits are never overwritten. A database from the older single-user version is migrated automatically on start (sections are moved into the new tree; the old progress is given to the first admin). When new default content is released, a migration adds only what's missing (new categories, pages and glossary terms) and never changes or re-creates anything you edited or deleted.
 
 ### 🔐 Authentication
 - Short-lived **JWT access token** (15 min, kept in memory) + **refresh token** in an `httpOnly` cookie (30 days, rotated on every use; a reused token logs out all sessions).

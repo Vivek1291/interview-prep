@@ -43,6 +43,7 @@ export default function TopBar({ onMenu }) {
       <nav className="topnav">
         <NavLink to="/" end>🏠 Dashboard</NavLink>
         <NavLink to="/revise">⚡ Quick Revise</NavLink>
+        <NavLink to="/terms">📖 Terms</NavLink>
       </nav>
       <div className="topbar-right">
         <label className="switch" title="Hide code solutions until you click — practice first!">

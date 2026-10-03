@@ -62,6 +62,21 @@ const profileUpdate = z.object({ name }).strict();
 const passwordChange = z.object({ currentPassword: z.string().min(1).max(200), newPassword: password }).strict();
 const roleUpdate = z.object({ role: z.enum(['admin', 'user']) }).strict();
 
+// ---- Glossary terms ----
+const aliasList = z.array(z.string().trim().max(80)).max(12).transform((a) => a.filter(Boolean));   // blanks dropped
+const termCreate = z.object({
+  term: z.string().trim().min(1).max(80),
+  aliases: aliasList.optional().default([]),
+  summary: z.string().trim().max(400).optional().default(''),
+  blocks: z.array(block).max(200).optional().default([]),
+}).strict();
+const termUpdate = z.object({
+  term: z.string().trim().min(1).max(80).optional(),
+  aliases: aliasList.optional(),
+  summary: z.string().trim().max(400).optional(),
+  blocks: z.array(block).max(200).optional(),
+}).strict();
+
 // ---- Import a document ----
 const importRule = z.discriminatedUnion('type', [
   z.object({ type: z.literal('heading'), level: z.number().int().min(1).max(6) }).strict(),
@@ -100,5 +115,5 @@ const importCommitTabs = z.object({
 module.exports = {
   sectionCreate, sectionUpdate, questionCreate, questionUpdate, reorder, noteCreate, progressUpdate,
   register, login, profileUpdate, passwordChange, roleUpdate, objectId,
-  importStart, importPreview, importCommit, importCommitTabs,
+  importStart, importPreview, importCommit, importCommitTabs, termCreate, termUpdate,
 };

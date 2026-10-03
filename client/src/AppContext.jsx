@@ -6,6 +6,8 @@ const AppContext = createContext(null);
 export function AppProvider({ children }) {
   const [theme, setTheme] = useState(() => storage.get('theme', 'light'));
   const [practiceMode, setPracticeMode] = useState(() => storage.get('practiceMode', false));
+  const [termLinks, setTermLinks] = useState(() => storage.get('termLinks', true));   // link glossary terms inside pages
+  const [openTermId, setOpenTermId] = useState(null);                                 // term shown in the side panel
   const [toasts, setToasts] = useState([]);
 
   useEffect(() => {
@@ -13,6 +15,7 @@ export function AppProvider({ children }) {
     storage.set('theme', theme);
   }, [theme]);
   useEffect(() => storage.set('practiceMode', practiceMode), [practiceMode]);
+  useEffect(() => storage.set('termLinks', termLinks), [termLinks]);
 
   const toast = useCallback((message, type = 'success') => {
     const id = Math.random().toString(36).slice(2);
@@ -21,8 +24,8 @@ export function AppProvider({ children }) {
   }, []);
 
   const value = useMemo(
-    () => ({ theme, setTheme, practiceMode, setPracticeMode, toast }),
-    [theme, practiceMode, toast]
+    () => ({ theme, setTheme, practiceMode, setPracticeMode, termLinks, setTermLinks, openTermId, openTerm: setOpenTermId, toast }),
+    [theme, practiceMode, termLinks, openTermId, toast]
   );
 
   return (

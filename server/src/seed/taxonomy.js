@@ -20,9 +20,11 @@ const TREE = [
       {
         key: 'frontend/react', title: 'React', icon: '⚛️', color: '#06b6d4', description: 'Components, hooks, state, performance.',
         children: [
-          { key: 'frontend/react/fundamentals', title: 'Fundamentals', icon: '🧱', color: '#06b6d4', description: 'JSX, components, props, state, effects.' },
-          { key: 'frontend/react/hooks', title: 'Hooks', icon: '🪝', color: '#06b6d4', description: 'Built-in and custom hooks.' },
-          { key: 'frontend/react/performance', title: 'Performance', icon: '⚡', color: '#06b6d4', description: 'Rendering, memoisation, code splitting.' },
+          { key: 'frontend/react/fundamentals', files: ['22-react-fundamentals.md'] },
+          { key: 'frontend/react/hooks', files: ['23-react-hooks.md'] },
+          { key: 'frontend/react/performance', files: ['24-react-performance.md'] },
+          { key: 'frontend/react/suspense', files: ['25-react-suspense.md'] },
+          { key: 'frontend/react/react-19', files: ['26-react-19.md'] },
         ],
       },
       { key: 'frontend/nextjs', title: 'Next.js', icon: '▲', color: '#64748b', description: 'Routing, server components, data fetching, rendering strategies.' },

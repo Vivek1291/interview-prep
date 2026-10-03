@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react';
 
-// Shows a floating "Add to Quick Revise" button when the user selects text inside `containerRef`.
-export default function SelectionPopover({ containerRef, onAdd, disabled }) {
+// Shows floating buttons when the user selects text inside `containerRef`:
+// "📌 Add to Quick Revise" and (optional) "📖 Add as term".
+export default function SelectionPopover({ containerRef, onAdd, onAddTerm, disabled }) {
   const [pos, setPos] = useState(null);
   const [text, setText] = useState('');
 
@@ -17,7 +18,7 @@ export default function SelectionPopover({ containerRef, onAdd, disabled }) {
         }
         const rect = sel.getRangeAt(0).getBoundingClientRect();
         setText(t);
-        setPos({ top: rect.top - 44, left: Math.min(Math.max(rect.left + rect.width / 2, 110), window.innerWidth - 110) });
+        setPos({ top: rect.top - 44, left: Math.min(Math.max(rect.left + rect.width / 2, 160), window.innerWidth - 160) });
       }, 10);
     };
     const onScroll = () => setPos(null);
@@ -32,18 +33,11 @@ export default function SelectionPopover({ containerRef, onAdd, disabled }) {
   }, [containerRef, disabled]);
 
   if (!pos) return null;
+  const run = (fn, value) => { fn(value); setPos(null); window.getSelection()?.removeAllRanges(); };
   return (
-    <button
-      className="selection-pop"
-      style={{ top: Math.max(pos.top, 8), left: pos.left }}
-      onMouseDown={(e) => e.preventDefault()}
-      onClick={() => {
-        onAdd(text.length > 500 ? `${text.slice(0, 500)}…` : text);
-        setPos(null);
-        window.getSelection()?.removeAllRanges();
-      }}
-    >
-      📌 Add to Quick Revise
-    </button>
+    <div className="selection-pop" style={{ top: Math.max(pos.top, 8), left: pos.left }} onMouseDown={(e) => e.preventDefault()}>
+      <button type="button" onClick={() => run(onAdd, text.length > 500 ? `${text.slice(0, 500)}…` : text)}>📌 Add to Quick Revise</button>
+      {onAddTerm && <button type="button" onClick={() => run(onAddTerm, text)} title="Save this word as a glossary term you can open from anywhere">📖 Add as term</button>}
+    </div>
   );
 }

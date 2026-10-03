@@ -118,6 +118,13 @@ export const api = {
   importWholeDocument: (id) => http.post(`/imports/${id}/whole-document`, null, { timeout: 0 }).then(data),
   importUseTabs: (id) => http.post(`/imports/${id}/tabs`).then(data),
 
+  // glossary terms
+  terms: () => http.get('/terms').then(data),
+  term: (id) => http.get(`/terms/${id}`).then(data),
+  createTerm: (body) => http.post('/terms', body).then(data),
+  updateTerm: (id, body) => http.put(`/terms/${id}`, body).then(data),
+  deleteTerm: (id) => http.delete(`/terms/${id}`),
+
   exportBackup: () => http.get('/backup/export').then((r) => r.data),
   importBackup: (json) => http.post('/backup/import', json).then((r) => r.data),
   reset: () => http.post('/backup/reset').then((r) => r.data),
