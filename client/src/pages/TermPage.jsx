@@ -1,13 +1,15 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { Suspense, lazy, useCallback, useEffect, useRef, useState } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { api } from '../api/client';
-import { useTerm, useTermMutations } from '../api/hooks';
+import { useAiEnabled, useTerm, useTermMutations } from '../api/hooks';
 import { useApp } from '../AppContext';
 import { BlockView } from '../components/blocks/Block';
 import BlocksEditor from '../components/blocks/BlocksEditor';
 import { inlineMarkdown } from '../utils/html';
 import { useTermLinks } from '../utils/termLinks';
+
+const AskAiPanel = lazy(() => import('../components/AskAiPanel'));
 
 // One glossary term: read it, edit it (same block editor as pages) and see the pages that mention it.
 export default function TermPage() {
@@ -20,6 +22,8 @@ export default function TermPage() {
   const [draft, setDraft] = useState(null);
   const [dirty, setDirty] = useState(false);
   const ref = useRef(null);
+  const [askAi, setAskAi] = useState(false);
+  const aiEnabled = useAiEnabled();
   useTermLinks(ref, { active: !draft, content: term?.blocks, exclude: id });   // link OTHER terms
   const { data: mentions } = useQuery({ queryKey: ['search', term?.term], queryFn: () => api.search(term.term), enabled: !!term });
 
@@ -70,10 +74,11 @@ export default function TermPage() {
               <button className="btn" onClick={cancel}>Cancel</button>
               <button className="btn btn-primary" onClick={save} disabled={m.update.isPending}>{m.update.isPending ? 'Saving…' : '💾 Save (Ctrl+S)'}</button>
             </>
-          ) : term.canEdit && (
+          ) : (
             <>
-              <button className="btn btn-primary" onClick={startEdit}>✏️ Edit</button>
-              <button className="btn btn-danger-ghost" onClick={remove} title="Delete term">🗑</button>
+              {aiEnabled && <button className="btn" onClick={() => setAskAi(true)}>🤖 Ask AI</button>}
+              {term.canEdit && <button className="btn btn-primary" onClick={startEdit}>✏️ Edit</button>}
+              {term.canEdit && <button className="btn btn-danger-ghost" onClick={remove} title="Delete term">🗑</button>}
             </>
           )}
         </div>
@@ -97,6 +102,11 @@ export default function TermPage() {
             : <div className="empty">No explanation yet.{term.canEdit && <> <button className="btn btn-primary" onClick={startEdit}>✏️ Write it</button></>}</div>}
       </div>
 
+      {askAi && (
+        <Suspense fallback={null}>
+          <AskAiPanel context={{ termId: id, title: term.term }} onClose={() => setAskAi(false)} />
+        </Suspense>
+      )}
       {!draft && !!mentions?.length && (
         <div className="card mentions">
           <h3>📄 Pages that mention “{term.term}”</h3>

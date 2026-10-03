@@ -10,7 +10,22 @@ const ImportModal = lazy(() => import('../components/ImportModal'));
 
 const STATUS_LABEL = { new: '○ Not started', learning: '◐ Learning', revise: '↻ Revise', confident: '● Confident' };
 
-export function Breadcrumb({ path, current }) {
+function PageItems({ pages }) {
+  return pages.map((p) => (
+    <li key={p._id}>
+      <Link to={`/q/${p._id}`}>
+        <span className={`status-dot status-${p.status}`} title={STATUS_LABEL[p.status]}>{STATUS_LABEL[p.status].slice(0, 1)}</span>
+        <span className="page-list-title">{p.title}</span>
+        {p.owner && <span title="Private">🔒</span>}
+        {p.priority === 3 && <span title="Must know">🔥</span>}
+        {p.starred && <span title="Starred">★</span>}
+      </Link>
+      {p.children?.length > 0 && <ol className="page-list sub"><PageItems pages={p.children} /></ol>}
+    </li>
+  ));
+}
+
+export function Breadcrumb({ path, current, pages = [] }) {
   return (
     <nav className="breadcrumb" aria-label="Breadcrumb">
       <Link to="/">🏠</Link>
@@ -19,6 +34,9 @@ export function Breadcrumb({ path, current }) {
           <span className="crumb-sep">›</span>
           {i === path.length - 1 && !current ? <span style={{ color: n.color }}>{n.icon} {n.title}</span> : <Link to={`/c/${n._id}`}>{n.icon} {n.title}</Link>}
         </span>
+      ))}
+      {pages.map((p) => (
+        <span key={p._id}><span className="crumb-sep">›</span><Link to={`/q/${p._id}`}>📄 {p.title}</Link></span>
       ))}
       {current && <><span className="crumb-sep">›</span><span className="muted">{current}</span></>}
     </nav>
@@ -85,17 +103,7 @@ export default function CategoryPage() {
         <h2 className="list-title">Pages</h2>
         {node.pages.length ? (
           <ol className="page-list">
-            {node.pages.map((p) => (
-              <li key={p._id}>
-                <Link to={`/q/${p._id}`}>
-                  <span className={`status-dot status-${p.status}`} title={STATUS_LABEL[p.status]}>{STATUS_LABEL[p.status].slice(0, 1)}</span>
-                  <span className="page-list-title">{p.title}</span>
-                  {p.owner && <span title="Private">🔒</span>}
-                  {p.priority === 3 && <span title="Must know">🔥</span>}
-                  {p.starred && <span title="Starred">★</span>}
-                </Link>
-              </li>
-            ))}
+            <PageItems pages={node.pages} />
           </ol>
         ) : (
           <div className="empty">

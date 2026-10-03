@@ -58,6 +58,43 @@ http.interceptors.response.use(
 
 const data = (r) => r.data.data;
 
+/**
+ * Streams /api/ai/ask (Server-Sent Events) with fetch, because axios can't read a response while it arrives.
+ * onEvent gets { type: 'start' | 'text' | 'done' | 'error', ... }.
+ */
+export async function aiAskStream(body, onEvent, signal) {
+  const go = () => fetch('/api/ai/ask', {
+    method: 'POST',
+    credentials: 'include',
+    signal,
+    headers: { 'Content-Type': 'application/json', ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}) },
+    body: JSON.stringify(body),
+  });
+  let res = await go();
+  if (res.status === 401) {
+    const j = await res.clone().json().catch(() => ({}));
+    if (j.code === 'TOKEN_EXPIRED') { await refreshSession(); res = await go(); }
+  }
+  if (!res.ok) {
+    const j = await res.json().catch(() => ({}));
+    throw new ApiError({ message: j.message || `HTTP ${res.status}`, status: res.status, code: j.code });
+  }
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buf = '';
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buf += decoder.decode(value, { stream: true });
+    let i;
+    while ((i = buf.indexOf('\n\n')) >= 0) {
+      const line = buf.slice(0, i).split('\n').find((l) => l.startsWith('data:'));
+      buf = buf.slice(i + 2);
+      if (line) onEvent(JSON.parse(line.slice(5).trim()));
+    }
+  }
+}
+
 export const api = {
   // auth & account
   login: (body) => http.post('/auth/login', body).then((r) => r.data),
@@ -117,6 +154,14 @@ export const api = {
   importStatus: (id) => http.get(`/imports/${id}/status`).then(data),
   importWholeDocument: (id) => http.post(`/imports/${id}/whole-document`, null, { timeout: 0 }).then(data),
   importUseTabs: (id) => http.post(`/imports/${id}/tabs`).then(data),
+
+  // AI assistant
+  aiStatus: () => http.get('/ai/status').then(data),
+  aiPreview: (markdown) => http.post('/ai/preview', { markdown }).then(data),
+  aiSave: (body) => http.post('/ai/save', body).then(data),
+  aiSettings: () => http.get('/admin/ai').then(data),
+  saveAiSettings: (body) => http.put('/admin/ai', body).then(data),
+  testAiProvider: (id) => http.post(`/admin/ai/providers/${id}/test`, null, { timeout: 60000 }).then(data),
 
   // glossary terms
   terms: () => http.get('/terms').then(data),

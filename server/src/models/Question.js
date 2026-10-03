@@ -35,6 +35,7 @@ const QuickNoteSchema = new mongoose.Schema(
 const QuestionSchema = new mongoose.Schema(
   {
     section: { type: mongoose.Schema.Types.ObjectId, ref: 'Section', required: true },
+    parent: { type: mongoose.Schema.Types.ObjectId, ref: 'Question', default: null }, // sub-page of another page (same section)
     owner: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null }, // null = common (admin) content
     title: { type: String, required: true, trim: true },
     priority: { type: Number, min: 1, max: 3, default: 2 }, // 3 = must know
@@ -48,6 +49,7 @@ const QuestionSchema = new mongoose.Schema(
 
 // We always list pages of a node in order, and filter by owner for visibility.
 QuestionSchema.index({ section: 1, order: 1 });
+QuestionSchema.index({ parent: 1 });
 QuestionSchema.index({ owner: 1 });
 
 module.exports = mongoose.model('Question', QuestionSchema);

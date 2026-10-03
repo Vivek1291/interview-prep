@@ -1,14 +1,16 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
-import { useQuestion, useQuestionMutations, useTree } from '../api/hooks';
+import { useAiEnabled, useQuestion, useQuestionMutations, useTree } from '../api/hooks';
 import { useAuth } from '../auth/AuthProvider';
-import { NodeSelect } from '../components/Forms';
+import { NodeSelect, QuestionFormModal } from '../components/Forms';
 import { Breadcrumb } from './CategoryPage';
 import { useApp } from '../AppContext';
 import { BlockView } from '../components/blocks/Block';
 import BlocksEditor from '../components/blocks/BlocksEditor';
 import TermFormModal from '../components/TermFormModal';
 import { useTermLinks } from '../utils/termLinks';
+
+const AskAiPanel = lazy(() => import('../components/AskAiPanel'));
 import QuickNotes from '../components/QuickNotes';
 import SelectionPopover from '../components/SelectionPopover';
 import { escapeHtml } from '../utils/html';
@@ -36,6 +38,9 @@ export default function QuestionPage() {
   const [dirty, setDirty] = useState(false);
   const contentRef = useRef(null);
   const [newTerm, setNewTerm] = useState(null);       // text selected for "Add as term"
+  const [addingSub, setAddingSub] = useState(false);  // "＋ Sub-page" form
+  const [askAi, setAskAi] = useState(null);           // { selection? } while the AI panel is open
+  const aiEnabled = useAiEnabled();
   useTermLinks(contentRef, { active: !editing, content: question?.blocks });   // glossary terms become clickable
 
   // Remember last visited question for the dashboard "continue" card
@@ -90,6 +95,7 @@ export default function QuestionPage() {
   }, [editing, dirty, save]);
 
   const section = tree?.byId.get(String(question?.section));
+  const treePage = tree?.pageById.get(id);              // this page in the tree: parents (path) and sub-pages (children)
   const flat = useMemo(() => tree?.pages || [], [tree]);
   const idx = flat.findIndex((q) => q._id === id);
   const prev = idx > 0 ? flat[idx - 1] : null;
@@ -113,7 +119,8 @@ export default function QuestionPage() {
   };
 
   const remove = () => {
-    if (!window.confirm(`Delete "${question.title}"? This cannot be undone.`)) return;
+    const subs = treePage?.children.length ? ` and its ${treePage.children.length} sub-page(s)` : '';
+    if (!window.confirm(`Delete "${question.title}"${subs}? This cannot be undone.`)) return;
     m.remove.mutate(id, { onSuccess: () => { toast('Question deleted'); navigate(next ? `/q/${next._id}` : '/'); } });
   };
 
@@ -122,7 +129,7 @@ export default function QuestionPage() {
   return (
     <div className="page question-page">
       <div className="breadcrumb-row">
-        {section && <Breadcrumb path={section.path} />}
+        {section && <Breadcrumb path={section.path} pages={treePage?.path || []} />}
         {question.owner && <span className="private-pill" title="Only you can see this page">🔒 Private</span>}
       </div>
 
@@ -133,6 +140,8 @@ export default function QuestionPage() {
           <h1>{question.title}</h1>
         )}
         <div className="q-actions">
+          {!editing && aiEnabled && <button className="btn" onClick={() => setAskAi({})} title="Ask an AI for more detail, examples or a diagram">🤖 Ask AI</button>}
+          {!editing && <button className="btn" onClick={() => setAddingSub(true)} title={isAdmin ? 'Add a page inside this page (shared)' : 'Add your own private page inside this page'}>＋ Sub-page</button>}
           {editing ? (
             <>
               <span className={`save-state ${dirty ? 'dirty' : ''}`}>{dirty ? '● Unsaved changes' : 'No changes'}</span>
@@ -201,8 +210,41 @@ export default function QuestionPage() {
         disabled={editing}
         onAdd={(text) => m.addMyNote.mutate({ id, text: escapeHtml(text) }, { onSuccess: () => toast('📌 Added to my Quick Revise notes') })}
         onAddTerm={(text) => setNewTerm(text)}
+        onAskAi={aiEnabled ? (text) => setAskAi({ selection: text }) : undefined}
       />
+      {askAi && (
+        <Suspense fallback={null}>
+          <AskAiPanel context={{ pageId: id, title: question.title, selection: askAi.selection }} onClose={() => setAskAi(null)} />
+        </Suspense>
+      )}
       {newTerm != null && <TermFormModal selection={newTerm} onClose={() => setNewTerm(null)} />}
+
+      {!editing && (
+        <div className="card sub-pages-card">
+          <div className="sub-pages-head">
+            <h3>📑 Sub-pages{treePage?.children.length ? ` (${treePage.children.length})` : ''}</h3>
+            <button className="btn btn-sm" onClick={() => setAddingSub(true)}>＋ Add sub-page</button>
+          </div>
+          {treePage?.children.length ? (
+            <ol className="page-list sub">
+              {treePage.children.map((c) => (
+                <li key={c._id}><Link to={`/q/${c._id}`}><span className="page-list-title">{c.title}</span>{c.owner && <span title="Private">🔒</span>}{c.children.length > 0 && <span className="muted small">{c.children.length} inside</span>}</Link></li>
+              ))}
+            </ol>
+          ) : <p className="muted small">Break this topic down: e.g. a variant, an edge case or a follow-up question{isAdmin ? ' (shared with everyone).' : ' (private to you).'}</p>}
+        </div>
+      )}
+      {addingSub && (
+        <QuestionFormModal
+          parentTitle={question.title}
+          isAdmin={isAdmin}
+          onClose={() => setAddingSub(false)}
+          onSubmit={(body) => m.create.mutate({ ...body, parent: id }, {
+            onSuccess: (q) => { setAddingSub(false); toast(q.owner ? 'Private sub-page created' : 'Sub-page created'); navigate(`/q/${q._id}?edit=1`); },
+            onError: (e) => toast(e.message, 'error'),
+          })}
+        />
+      )}
 
       {!editing && <QuickNotes question={question} />}
 

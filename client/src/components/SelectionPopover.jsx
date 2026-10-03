@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 
 // Shows floating buttons when the user selects text inside `containerRef`:
 // "📌 Add to Quick Revise" and (optional) "📖 Add as term".
-export default function SelectionPopover({ containerRef, onAdd, onAddTerm, disabled }) {
+export default function SelectionPopover({ containerRef, onAdd, onAddTerm, onAskAi, disabled }) {
   const [pos, setPos] = useState(null);
   const [text, setText] = useState('');
 
@@ -38,6 +38,7 @@ export default function SelectionPopover({ containerRef, onAdd, onAddTerm, disab
     <div className="selection-pop" style={{ top: Math.max(pos.top, 8), left: pos.left }} onMouseDown={(e) => e.preventDefault()}>
       <button type="button" onClick={() => run(onAdd, text.length > 500 ? `${text.slice(0, 500)}…` : text)}>📌 Add to Quick Revise</button>
       {onAddTerm && <button type="button" onClick={() => run(onAddTerm, text)} title="Save this word as a glossary term you can open from anywhere">📖 Add as term</button>}
+      {onAskAi && <button type="button" onClick={() => run(onAskAi, text.slice(0, 2000))} title="Ask the AI to explain the selected text">🤖 Ask AI</button>}
     </div>
   );
 }

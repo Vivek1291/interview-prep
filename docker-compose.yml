@@ -27,6 +27,12 @@ services:
       # JWT_ACCESS_SECRET: change-me     # otherwise generated once and stored in MongoDB
       # JWT_REFRESH_SECRET: change-me-too
       # AUTH_RATE_LIMIT: "off"           # disable the login/signup rate limit (20 tries / 15 min)
+      # AI assistant (optional: providers can also be added in Settings → AI, keys are encrypted there)
+      # AI_ENABLED: "true"
+      # ANTHROPIC_API_KEY: sk-ant-…       # Claude; ANTHROPIC_MODEL defaults to claude-sonnet-5
+      # OPENAI_API_KEY: sk-…              # plus OPENAI_MODEL: <model id>
+      # GEMINI_API_KEY: …                 # plus GEMINI_MODEL: <model id>
+      # AI_PROVIDERS: '[{"name":"Groq","type":"openai-compatible","baseUrl":"https://api.groq.com/openai/v1","model":"<model>","apiKeyEnv":"GROQ_API_KEY"}]'
     volumes:
       - uploads_data:/app/uploads    # uploaded images
     ports:

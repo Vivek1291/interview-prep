@@ -1,6 +1,6 @@
 const Question = require('../models/Question');
 
-const SUMMARY_FIELDS = 'section owner title priority tags order';
+const SUMMARY_FIELDS = 'section parent owner title priority tags order';
 const escapeRegex = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
 const questionRepository = {
@@ -18,6 +18,11 @@ const questionRepository = {
   find: (filter, projection) => Question.find(filter, projection).lean(),
   findById: (id) => Question.findById(id).lean(),
   count: (filter = {}) => Question.countDocuments(filter),
+  /** highest order among siblings (same section and same parent page) */
+  maxOrderAmong: async (sectionId, parentId = null) => {
+    const last = await Question.findOne({ section: sectionId, parent: parentId ?? null }).sort({ order: -1 }).select('order').lean();
+    return last ? last.order : -1;
+  },
   maxOrderInSection: async (sectionId) => {
     const last = await Question.findOne({ section: sectionId }).sort({ order: -1 }).select('order').lean();
     return last ? last.order : -1;

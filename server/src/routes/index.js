@@ -12,6 +12,7 @@ const questions = require('../controllers/questionController');
 const admin = require('../controllers/adminController');
 const imports = require('../controllers/importController');
 const terms = require('../controllers/termController');
+const ai = require('../controllers/aiController');
 
 // Router-level middleware / routes. Mounted at /api/v1 (API versioning) and /api.
 const router = express.Router();
@@ -69,6 +70,12 @@ router.get('/quick-notes', questions.revise);
 // Images inside pages
 router.post('/uploads', upload.single('file'), admin.upload);
 
+// AI assistant: more detail on a page / term / selection, saved as a page if wanted
+router.get('/ai/status', ai.status);
+router.post('/ai/ask', validate(s.aiAsk), ai.ask);
+router.post('/ai/preview', validate(s.aiPreview), ai.preview);
+router.post('/ai/save', validate(s.aiSave), ai.save);
+
 // Glossary terms (shared or private), linked automatically inside pages
 router.get('/terms', terms.list);
 router.post('/terms', validate(s.termCreate), terms.create);
@@ -88,6 +95,9 @@ router.delete('/imports/:id', imports.cancel);
 
 // ---- Admin ----
 router.get('/admin/users', requireAdmin, users.list);
+router.get('/admin/ai', requireAdmin, ai.getSettings);
+router.put('/admin/ai', requireAdmin, validate(s.aiSettings), ai.saveSettings);
+router.post('/admin/ai/providers/:id/test', requireAdmin, ai.test);
 router.patch('/admin/users/:id', requireAdmin, validate(s.roleUpdate), users.setRole);
 router.get('/backup/export', requireAdmin, admin.exportAll);
 router.post('/backup/import', requireAdmin, admin.importAll);

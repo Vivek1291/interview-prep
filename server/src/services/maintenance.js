@@ -30,11 +30,17 @@ async function recoverOrphans() {
     await Question.updateMany({ _id: { $in: pageIds } }, { $set: { section: recovered._id } });
   }
 
+  // sub-pages whose parent page is gone (or now lives in another category) become top-level pages
+  const allPages = await Question.find({}, '_id parent section').lean();
+  const pageById = new Map(allPages.map((p) => [String(p._id), p]));
+  const loose = allPages.filter((p) => p.parent && (!pageById.has(String(p.parent)) || String(pageById.get(String(p.parent)).section) !== String(p.section))).map((p) => p._id);
+  if (loose.length) await Question.updateMany({ _id: { $in: loose } }, { $set: { parent: null } });
+
   const pageIds = new Set((await Question.find({}, '_id').lean()).map((p) => String(p._id)));
   const stale = (await Progress.distinct('question')).filter((id) => !pageIds.has(String(id)));
   if (stale.length) await Progress.deleteMany({ question: { $in: stale } });
 
-  return { movedCategories: orphanNodes.length, deletedSharedPages: common.length, recoveredPages: orphanPages.length - common.length, removedProgress: stale.length };
+  return { movedCategories: orphanNodes.length, deletedSharedPages: common.length, recoveredPages: orphanPages.length - common.length, detachedSubPages: loose.length, removedProgress: stale.length };
 }
 
 module.exports = { recoverOrphans };

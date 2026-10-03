@@ -5,6 +5,7 @@ import { keys, useUsers } from '../api/hooks';
 import { useApp } from '../AppContext';
 import { useAuth } from '../auth/AuthProvider';
 import Avatar from '../components/Avatar';
+import AiSettingsCard from '../components/AiSettingsCard';
 
 const AVATAR_TYPES = ['image/png', 'image/jpeg', 'image/webp', 'image/gif'];
 
@@ -259,6 +260,7 @@ export default function SettingsPage() {
           <span>📖 Link glossary terms inside pages <span className="muted small">(click “libuv” in a page to read its explanation)</span></span>
         </label>
       </div>
+      {isAdmin && <AiSettingsCard />}
       {isAdmin && <UsersCard />}
       {isAdmin && <SharedContentCard />}
     </div>

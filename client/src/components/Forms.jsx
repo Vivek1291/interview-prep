@@ -56,11 +56,11 @@ export function SectionFormModal({ initial, parent, roots, isAdmin, onSubmit, on
   );
 }
 
-export function QuestionFormModal({ sectionTitle, isAdmin, onSubmit, onClose }) {
+export function QuestionFormModal({ sectionTitle, parentTitle, isAdmin, onSubmit, onClose }) {
   const [title, setTitle] = useState('');
   const [priority, setPriority] = useState(2);
   return (
-    <Modal title={`New page${sectionTitle ? ` in “${sectionTitle}”` : ''}`} onClose={onClose}>
+    <Modal title={parentTitle ? `New sub-page of “${parentTitle}”` : `New page${sectionTitle ? ` in “${sectionTitle}”` : ''}`} onClose={onClose}>
       <form
         className="form"
         onSubmit={(e) => {
@@ -68,7 +68,7 @@ export function QuestionFormModal({ sectionTitle, isAdmin, onSubmit, onClose }) 
           if (title.trim()) onSubmit({ title: title.trim(), priority });
         }}
       >
-        <label>Title<input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="e.g. Promise polyfill, or: What is a closure?" /></label>
+        <label>Title<input value={title} onChange={(e) => setTitle(e.target.value)} placeholder={parentTitle ? 'e.g. Debounce with leading edge' : 'e.g. Promise polyfill, or: What is a closure?'} /></label>
         <label>Importance</label>
         <div className="priority-choice">
           {[3, 2, 1].map((p) => (

@@ -72,17 +72,51 @@ function SortableList({ items, onReorder, disabled, render, className }) {
   );
 }
 
-function PageLink({ p, handle }) {
+function PageLink({ p }) {                                   // search results: a flat link
   return (
     <div className="q-row">
-      {handle && <span className="drag-handle small" {...handle} title="Drag to reorder">⋮⋮</span>}
       <NavLink to={`/q/${p._id}`} className="q-link">
         <span className={`status-dot status-${p.status}`} title={p.status}>{STATUS_ICON[p.status]}</span>
         <span className="q-title">{p.title}</span>
         {p.owner && <span className="private-badge" title="Private: only you can see this">🔒</span>}
-        {p.priority === 3 && <span className="must-dot" title="Must know">🔥</span>}
-        {p.starred && <span title="Starred">★</span>}
       </NavLink>
+    </div>
+  );
+}
+
+function PageNode({ p, node, handle, ctx, flat }) {
+  const { expanded, toggle, setModal, questions, filter } = ctx;
+  const hasKids = !flat && p.children.length > 0;
+  const open = !!expanded[p._id];
+  return (
+    <div className="page-node">
+      <div className="q-row">
+        {handle && <span className="drag-handle small" {...handle} title="Drag to reorder">⋮⋮</span>}
+        {hasKids ? (
+          <button className="page-caret" onClick={() => toggle(p._id)} aria-expanded={open} aria-label={`${open ? 'Hide' : 'Show'} sub-pages of ${p.title}`}>
+            <span className={`caret ${open ? 'open' : ''}`}>▸</span>
+          </button>
+        ) : <span className="page-caret-spacer" />}
+        <NavLink to={`/q/${p._id}`} className="q-link">
+          <span className={`status-dot status-${p.status}`} title={p.status}>{STATUS_ICON[p.status]}</span>
+          <span className="q-title">{p.title}</span>
+          {p.owner && <span className="private-badge" title="Private: only you can see this">🔒</span>}
+          {p.priority === 3 && <span className="must-dot" title="Must know">🔥</span>}
+          {p.starred && <span title="Starred">★</span>}
+          {!flat && p.children.length > 0 && !open && <span className="sub-count" title={`${p.children.length} sub-pages`}>{p.children.length}</span>}
+        </NavLink>
+        {!flat && <button className="page-add" title={`Add a sub-page to “${p.title}”`} aria-label={`Add a sub-page to ${p.title}`} onClick={() => setModal({ type: 'question', node, parentPage: p })}>＋</button>}
+      </div>
+      {hasKids && open && (
+        <div className="sub-pages">
+          <SortableList
+            items={p.children}
+            disabled={filter !== 'all'}
+            onReorder={(ids) => questions.reorder.mutate(ids)}
+            render={(c, h) => <PageNode p={c} node={node} handle={h} ctx={ctx} />}
+          />
+        </div>
+      )}
     </div>
   );
 }
@@ -90,7 +124,8 @@ function PageLink({ p, handle }) {
 function TreeNode({ node, handle, ctx }) {
   const { expanded, toggle, filterPage, filter, setModal, onDelete, sections, questions, activeId } = ctx;
   const open = !!expanded[node._id];
-  const visiblePages = useMemo(() => (filter === 'all' ? node.pages : node.pages.filter(filterPage)), [node.pages, filter, filterPage]);
+  // filters (must-know, starred…) show matching pages flat, sub-pages included
+  const visiblePages = useMemo(() => (filter === 'all' ? node.pages : node.allPages.filter(filterPage)), [node.pages, node.allPages, filter, filterPage]);
   const visibleChildren = useMemo(() => (filter === 'all' ? node.children : node.children.filter((c) => hasMatch(c, filterPage))), [node.children, filter, filterPage]);
   const count = filter === 'all' ? node.stats.total : countMatches(node, filterPage);
   return (
@@ -131,7 +166,7 @@ function TreeNode({ node, handle, ctx }) {
                 items={visiblePages}
                 disabled={filter !== 'all'}
                 onReorder={(ids) => questions.reorder.mutate(ids)}
-                render={(p, h) => <PageLink p={p} handle={h} />}
+                render={(p, h) => <PageNode p={p} node={node} handle={h} ctx={ctx} flat={filter !== 'all'} />}
               />
             </div>
           )}
@@ -144,8 +179,8 @@ function TreeNode({ node, handle, ctx }) {
   );
 }
 
-const hasMatch = (n, f) => n.pages.some(f) || n.children.some((c) => hasMatch(c, f));
-const countMatches = (n, f) => n.pages.filter(f).length + n.children.reduce((s, c) => s + countMatches(c, f), 0);
+const hasMatch = (n, f) => n.allPages.some(f) || n.children.some((c) => hasMatch(c, f));
+const countMatches = (n, f) => n.allPages.filter(f).length + n.children.reduce((s, c) => s + countMatches(c, f), 0);
 
 export default function Sidebar() {
   const { data: tree, isLoading, error } = useTree();
@@ -171,10 +206,11 @@ export default function Sidebar() {
   const pageId = location.pathname.startsWith('/q/') ? location.pathname.slice(3) : null;
   useEffect(() => {
     if (!tree) return;
-    const nodeId = activeId || tree.pageById.get(pageId)?.section;
+    const page = pageId && tree.pageById.get(pageId);
+    const nodeId = activeId || page?.section;
     const node = nodeId && tree.byId.get(nodeId);
     if (!node) return;
-    const needed = node.path.filter((n) => !expanded[n._id] && (n._id !== activeId || pageId));
+    const needed = [...node.path, ...(page?.path || [])].filter((n) => !expanded[n._id] && (n._id !== activeId || pageId));
     if (needed.length) saveExpanded({ ...expanded, ...Object.fromEntries(needed.map((n) => [n._id, true])) });
   }, [tree, activeId, pageId]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -188,7 +224,7 @@ export default function Sidebar() {
   };
 
   const ctx = useMemo(
-    () => ({ expanded, toggle, filter, filterPage: PAGE_FILTERS[filter], setModal, onDelete, sections, questions, activeId }),
+    () => ({ expanded, toggle, filter, filterPage: PAGE_FILTERS[filter], setModal, onDelete, sections, questions, activeId }),   // also used by PageNode
     [expanded, filter, activeId, sections, questions] // eslint-disable-line react-hooks/exhaustive-deps
   );
 
@@ -275,12 +311,14 @@ export default function Sidebar() {
       {modal?.type === 'question' && (
         <QuestionFormModal
           sectionTitle={modal.node.title}
+          parentTitle={modal.parentPage?.title}
           isAdmin={isAdmin}
           onClose={() => setModal(null)}
           onSubmit={(body) =>
-            questions.create.mutate({ ...body, section: modal.node._id }, done((q) => {
+            questions.create.mutate(modal.parentPage ? { ...body, parent: modal.parentPage._id } : { ...body, section: modal.node._id }, done((q) => {
               setModal(null);
-              toast(q.owner ? 'Private page created' : 'Page created');
+              if (modal.parentPage) saveExpanded({ ...expanded, [modal.parentPage._id]: true });
+              toast(`${q.owner ? 'Private ' : ''}${modal.parentPage ? 'sub-page' : 'page'} created`.replace(/^p/, 'P').replace(/^s/, 'S'));
               navigate(`/q/${q._id}?edit=1`);
             }))
           }

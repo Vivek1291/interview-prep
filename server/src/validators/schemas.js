@@ -31,14 +31,15 @@ const sectionCreate = z.object({
 const sectionUpdate = sectionCreate.partial().strict();
 
 const questionCreate = z.object({
-  section: objectId,
+  section: objectId.optional(),                 // optional when `parent` is given (a sub-page lives in its parent's section)
+  parent: objectId.nullable().optional(),       // the page this is a sub-page of
   title: z.string().trim().min(1).max(300),
   priority: z.number().int().min(1).max(3).optional(),
   tags: z.array(z.string().max(40)).max(30).optional(),
   blocks: z.array(block).optional(),
   quickNotes: z.array(quickNote).optional(),
-}).strict();
-const questionUpdate = questionCreate.partial().strict();
+}).strict().refine((q) => q.section || q.parent, { message: 'section or parent is required', path: ['section'] });
+const questionUpdate = z.object(questionCreate._def.schema.shape).partial().strict();
 
 const reorder = z.object({ ids: z.array(objectId).min(1) }).strict();
 
@@ -112,8 +113,46 @@ const importCommitTabs = z.object({
   }).strict()).min(1).max(1000),
 }).strict();
 
+// ---- AI assistant ----
+const aiAsk = z.object({
+  question: z.string().trim().min(1).max(2000),
+  providerId: z.string().max(80).optional(),
+  pageId: objectId.optional(),
+  termId: objectId.optional(),
+  selection: z.string().max(5000).optional(),
+}).strict();
+const aiPreview = z.object({ markdown: z.string().max(200000) }).strict();
+const aiSave = z.object({
+  title: z.string().trim().min(1).max(300),
+  markdown: z.string().min(1).max(200000),
+  section: objectId.optional(),
+  parent: objectId.optional(),
+  provider: z.object({ id: z.string().max(80), name: z.string().max(80), model: z.string().max(120) }).partial().optional(),
+}).strict().refine((b) => b.section || b.parent, { message: 'Choose where to save it', path: ['section'] });
+const aiProvider = z.object({
+  id: z.string().max(80).optional(),
+  name: z.string().trim().min(1).max(60),
+  type: z.enum(['anthropic', 'openai', 'openai-compatible', 'gemini', 'ollama']),
+  model: z.string().trim().min(1).max(120),
+  baseUrl: z.string().trim().max(300).regex(/^(https?:\/\/\S+)?$/, 'Base URL must start with http:// or https://').optional(),
+  apiKey: z.string().max(500).optional(),
+  clearKey: z.boolean().optional(),
+  maxTokens: z.number().int().min(50).max(64000).nullable().optional(),
+  temperature: z.number().min(0).max(2).nullable().optional(),
+  source: z.string().optional(), hasKey: z.boolean().optional(), keyPreview: z.string().optional(),
+}).strip();
+const aiSettings = z.object({
+  enabled: z.boolean().optional(),
+  allow: z.enum(['all', 'admins']).optional(),
+  limitPerHour: z.number().int().min(0).max(10000).optional(),
+  maxTokens: z.number().int().min(50).max(64000).optional(),
+  defaultProvider: z.string().max(80).nullable().optional(),
+  providers: z.array(aiProvider).max(30).optional(),
+}).strip();
+
 module.exports = {
   sectionCreate, sectionUpdate, questionCreate, questionUpdate, reorder, noteCreate, progressUpdate,
   register, login, profileUpdate, passwordChange, roleUpdate, objectId,
   importStart, importPreview, importCommit, importCommitTabs, termCreate, termUpdate,
+  aiAsk, aiPreview, aiSave, aiSettings,
 };
