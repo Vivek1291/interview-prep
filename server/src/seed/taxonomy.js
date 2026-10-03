@@ -10,10 +10,11 @@ const TREE = [
       {
         key: 'frontend/javascript', title: 'JavaScript', icon: '🟨', color: '#eab308', description: 'The language: core concepts, async, the browser and hand-written polyfills.',
         children: [
-          { key: 'frontend/javascript/core', title: 'Core Concepts', icon: '🧠', color: '#eab308', description: 'Scope, closures, this, prototypes, types, equality.' },
-          { key: 'frontend/javascript/async', title: 'Async JavaScript', icon: '⏳', color: '#eab308', description: 'Event loop, callbacks, promises, async/await.' },
-          { key: 'frontend/javascript/polyfills', title: 'Polyfills & Implementations', icon: '🧩', color: '#eab308', description: 'Write it yourself: Promise, call/apply/bind, debounce, throttle, Promise.all…', files: ['12-js-implementations.md'] },
-          { key: 'frontend/javascript/browser', title: 'DOM & Browser APIs', icon: '🌐', color: '#eab308', description: 'DOM, events, storage, fetch, workers.' },
+          { key: 'frontend/javascript/core', title: 'Core Concepts', icon: '🧠', color: '#eab308', description: 'Scope, closures, this, prototypes, types, equality.', files: ['27-js-basics.md', '28-js-functions-scope.md', '29-js-objects-prototypes.md'] },
+          { key: 'frontend/javascript/async', files: ['30-js-async.md'] },
+          { key: 'frontend/javascript/polyfills', title: 'Polyfills & Implementations', icon: '🧩', color: '#eab308', description: 'Write it yourself: Promise, call/apply/bind, debounce, throttle, Promise.all…', files: ['12-js-implementations.md', '32-js-polyfills.md'] },
+          { key: 'frontend/javascript/browser', files: ['31-js-browser.md'] },
+          { key: 'frontend/javascript/patterns', files: ['33-js-design-patterns.md'] },
         ],
       },
       { key: 'frontend/typescript', title: 'TypeScript', icon: '🔷', color: '#3b82f6', description: 'Types, generics, utility types, typing React.' },

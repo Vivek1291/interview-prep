@@ -387,3 +387,111 @@ const onScroll = throttle(() => runs++, 50);
 for (let i = 0; i < 100; i++) onScroll();   // 100 events in ~0 ms
 console.log('100 events → 1 run', runs === 1 ? '✅' : '❌ FAIL');
 :::
+
+=== Temporal dead zone
+@aliases TDZ, temporal dead zone (TDZ)
+@summary The time between entering a scope and the line where a `let`, `const` or `class` is declared: the variable already exists but reading or writing it throws a `ReferenceError`.
+::: code javascript Reading a let before its line (runnable)
+let error = '';
+try { console.log(total); } catch (e) { error = e.name; }
+let total = 10;
+console.log('TDZ → ReferenceError', error === 'ReferenceError' && total === 10 ? '✅' : '❌ FAIL');
+:::
+
+=== Prototype chain
+@aliases prototypal inheritance, [[Prototype]]
+@summary The linked list of objects JavaScript follows when a property isn't found on an object: object → its prototype → that prototype's prototype … → `Object.prototype` → `null`.
+::: code javascript Lookup walks the chain (runnable)
+const animal = { eat() { return 'eating'; } };
+const dog = Object.create(animal);
+dog.bark = () => 'woof';
+console.log('own, inherited, missing', dog.bark() === 'woof' && dog.eat() === 'eating' && dog.fly === undefined ? '✅' : '❌ FAIL');
+console.log('chain ends at null', Object.getPrototypeOf(Object.getPrototypeOf(animal)) === null ? '✅' : '❌ FAIL');
+:::
+
+=== Type coercion
+@aliases implicit conversion, coercion
+@summary JavaScript automatically converting a value to another type: `+` with a string makes strings (`"3" + 4` → `"34"`), other maths makes numbers (`"3" - 4` → `-1`), and conditions make booleans (truthy/falsy).
+::: code javascript Coercion in one line each (runnable)
+console.log('"3" + 4 = "34"', '3' + 4 === '34' ? '✅' : '❌ FAIL');
+console.log('"3" - 4 = -1', '3' - 4 === -1 ? '✅' : '❌ FAIL');
+console.log('[] is truthy', Boolean([]) ? '✅' : '❌ FAIL');
+:::
+
+=== Currying
+@aliases curry, curried function
+@summary Turning `f(a, b, c)` into `f(a)(b)(c)`: each call takes one argument and returns a function waiting for the next, until all arguments have arrived.
+::: code javascript Curried add (runnable)
+const add = (a) => (b) => (c) => a + b + c;
+const add10 = add(10);                     // partial application
+console.log('add(1)(2)(3) = 6', add(1)(2)(3) === 6 && add10(1)(2) === 13 ? '✅' : '❌ FAIL');
+:::
+
+=== IIFE
+@aliases immediately invoked function expression
+@summary A function expression that runs as soon as it's defined, `(function () { … })()`, giving code a private scope that doesn't leak variables into the global scope.
+::: code javascript Private scope (runnable)
+const counter = (() => { let n = 0; return { inc: () => ++n }; })();
+counter.inc();
+console.log('state is private', counter.inc() === 2 && counter.n === undefined ? '✅' : '❌ FAIL');
+:::
+
+=== Polyfill
+@aliases polyfills, shim
+@summary Code that implements a newer built-in feature (like `Array.prototype.flat` or `Promise.allSettled`) for environments that don't have it, usually by checking first: `if (!Array.prototype.flat) { … }`.
+::: code javascript Add a method only when it's missing (runnable)
+if (!Array.prototype.myLast) {
+  Object.defineProperty(Array.prototype, 'myLast', { value() { return this[this.length - 1]; }, writable: true, configurable: true });
+}
+console.log('polyfilled method works and is not enumerable', [1, 2, 3].myLast() === 3 && !Object.keys([]).includes('myLast') ? '✅' : '❌ FAIL');
+:::
+
+=== Critical rendering path
+@aliases CRP, rendering pipeline
+@summary The browser's steps from bytes to pixels: HTML → DOM, CSS → CSSOM, render tree, layout, paint, composite. CSS blocks rendering and a classic `<script>` blocks parsing.
+::: diagram Bytes to pixels
+flowchart LR
+  H["HTML → DOM"] --> R["Render tree"]
+  C["CSS → CSSOM"] --> R
+  R --> L["Layout"]
+  L --> P["Paint"]
+  P --> CO["Composite"]
+:::
+
+=== Reflow
+@aliases reflow and repaint, layout thrashing
+@summary Recalculating the size and position of elements after a geometry change (width, font-size, adding nodes). Reading layout values like `offsetWidth` right after a write forces a synchronous reflow; doing that in a loop is **layout thrashing**.
+::: text 📖 Cheapest to most expensive
+- `transform`, `opacity` → composite only.
+- `color`, `background` → repaint.
+- `width`, `top`, DOM changes → reflow + repaint.
+- Batch reads first, then writes, to avoid thrashing (measured 106 ms → 1.8 ms on 1,000 elements).
+:::
+
+=== Event delegation
+@aliases delegated events, event bubbling
+@summary Handling events for many child elements with one listener on a parent, using bubbling and `event.target.closest(selector)`; it also works for elements added later.
+::: code javascript Find the clicked item from the parent (runnable)
+const tree = { name: 'li', parent: { name: 'ul', parent: null } };
+const icon = { name: 'svg', parent: tree };
+const closest = (node, name) => { for (let n = node; n; n = n.parent) if (n.name === name) return n; return null; };
+console.log('click on an icon resolves to its li', closest(icon, 'li') === tree ? '✅' : '❌ FAIL');
+:::
+
+=== Garbage collection
+@aliases GC, garbage collector, mark and sweep
+@summary The engine automatically frees heap memory that is no longer **reachable** from the roots (globals, the call stack). Anything still referenced, such as a forgotten listener or cache entry, stays in memory: that's a leak.
+::: text 📖 Remember
+- V8 uses generational **mark-and-sweep**: mark everything reachable, free the rest; cycles are fine.
+- Leaks = accidental references: listeners, intervals, growing Maps, detached DOM nodes, closures over big data.
+- Use `WeakMap` for per-object metadata, and remove listeners in cleanup.
+:::
+
+=== Web Vitals
+@aliases Core Web Vitals, LCP, INP, CLS
+@summary Google's user-experience metrics: **LCP** (loading, good ≤ 2.5 s), **INP** (responsiveness, good ≤ 200 ms) and **CLS** (visual stability, good ≤ 0.1), measured at the 75th percentile of real users.
+::: text 📖 Quick fixes
+- LCP: fast server, preload + `fetchpriority="high"` for the hero image, no render-blocking resources.
+- INP: break up long tasks, less JavaScript per interaction.
+- CLS: set width/height on images, reserve space for dynamic content.
+:::

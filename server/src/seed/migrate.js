@@ -10,9 +10,11 @@ const Meta = require('../models/Meta');
 const Section = require('../models/Section');
 const { defaultNodes, seedIfEmpty, insertDefaultTerms, addMissingDefaults, UNCATEGORISED } = require('./index');
 
-const CURRENT = 3;
+const CURRENT = 4;
 // v3 (Oct 2026): glossary terms + React sections (files 22-26) added to existing databases
 const V3_FILES = ['22-react-fundamentals.md', '23-react-hooks.md', '24-react-performance.md', '25-react-suspense.md', '26-react-19.md'];
+// v4 (Oct 2026): JavaScript sections (files 27-33) + any new glossary terms
+const V4_FILES = ['27-js-basics.md', '28-js-functions-scope.md', '29-js-objects-prototypes.md', '30-js-async.md', '31-js-browser.md', '32-js-polyfills.md', '33-js-design-patterns.md'];
 
 async function getVersion() {
   return (await Meta.findById('schemaVersion').lean())?.value ?? null;
@@ -82,8 +84,13 @@ async function migrate() {
       const terms = await insertDefaultTerms(new Map(), { onlyMissing: true });
       console.log(`🔁 Migrated to v3: ${r.addedNodes} new categories, ${r.addedPages} new pages, ${terms} glossary terms (nothing existing was changed)`);
     }
+    if (version == null || version < 4) {
+      const r = await addMissingDefaults(V4_FILES);
+      const terms = await insertDefaultTerms(new Map(), { onlyMissing: true });
+      console.log(`🔁 Migrated to v4: ${r.addedNodes} new categories, ${r.addedPages} new pages, ${terms} glossary terms (nothing existing was changed)`);
+    }
   }
   await setVersion(CURRENT);
 }
 
-module.exports = { migrate, CURRENT, V3_FILES };
+module.exports = { migrate, CURRENT, V3_FILES, V4_FILES };

@@ -9,7 +9,7 @@ const request = require('supertest');
 const mongoose = require('mongoose');
 const app = require('../src/app');
 const { loadSecrets } = require('../src/config/secrets');
-const { migrate, V3_FILES } = require('../src/seed/migrate');
+const { migrate, V3_FILES, CURRENT } = require('../src/seed/migrate');
 const { loadTerms } = require('../src/seed');
 const Section = require('../src/models/Section');
 const Question = require('../src/models/Question');
@@ -118,7 +118,7 @@ test('v3 migration adds the React sections and terms to an existing database wit
 
   await migrate();
 
-  assert.equal((await Meta.findById('schemaVersion').lean()).value, 3);
+  assert.equal((await Meta.findById('schemaVersion').lean()).value, CURRENT);
   const after = new Map((await Section.find({ key: { $ne: null } }).lean()).map((n) => [n.key, n]));
   assert.ok(after.get('frontend/react/suspense') && after.get('frontend/react/react-19'), 'new React categories created');
   assert.equal(String(after.get('frontend/react/suspense').parent), String(after.get('frontend/react')._id), 'placed under React');

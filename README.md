@@ -1,10 +1,15 @@
 # 🎯 Full-Stack Interview Prep
 
-A self-hosted study app for **Node.js, Express, REST/Auth, MongoDB, Mongoose, AWS, Full-Stack integration, LLD (frontend, backend and full-stack), JS implementations and DSA**. It ships with **243 questions** in 26 sections (including React: fundamentals, hooks, performance, Suspense & concurrent rendering, React 19) and 26 glossary terms, ordered by interview importance. Each concept question includes:
+A self-hosted study app for **JavaScript, React, Node.js, Express, REST/Auth, MongoDB, Mongoose, AWS, Full-Stack integration, LLD (frontend, backend and full-stack) and DSA**. It ships with **292 questions** in 33 sections and 37 glossary terms, ordered by interview importance. That includes:
+
+- **JavaScript** (49 questions): basics, functions and scope, objects and prototypes, async and the event loop, browser and DOM, array and function polyfills, and design patterns.
+- **React** (36 questions): fundamentals, hooks, performance, Suspense and concurrent rendering, and React 19.
+
+Each concept question includes:
 
 - 🧒 **In simple words**: an everyday analogy first
 - 📖 **Detailed answer** with tables, then 🪜 **Step by step** (what actually happens)
-- 📊 at least two visuals: a Mermaid diagram plus an illustration and/or a chart; charts use **numbers measured** on real software (MongoDB 7, Express 5, Mongoose 9, PM2, S3-compatible storage…), not made-up values
+- 📊 at least two visuals: a Mermaid diagram plus an illustration and/or a chart; charts use **numbers measured** on real software (MongoDB 7, Express 5, Mongoose 9, PM2, S3-compatible storage, Chrome, Node.js/V8…), not made-up values
 - 💻 complete code (with "How to run") and a **▶ Run**-able browser demo that checks itself with ✅ / ❌
 - ⚠️ common mistakes, 🧠 what you must understand, ❓ what to ask the interviewer
 - ⭐ **Say this in the interview**: a ready-to-speak answer
@@ -56,6 +61,7 @@ docker compose up -d --build  # rebuild after changing code
   - **Everyone**: can create **🔒 private** categories and pages anywhere (even inside shared categories); only they can see and edit them.
   - **Progress is per user**: status, ★ star and personal Quick-Revise notes are yours alone.
 - **Categories & pages**: add, edit, move, delete and **drag to reorder** (⋮⋮ handle in the sidebar).
+- **📑 Sub-pages** (any depth): a page can contain pages, e.g. *Implement debounce* → *Leading edge* → *lodash options*. Use **＋** next to a page in the sidebar, or **＋ Sub-page** at the top of a page. Like everything else: learners' sub-pages are private (even under shared pages), admins' are shared. Moving a page to another category takes its sub-pages along; deleting a page deletes your sub-pages under it, and other users' private sub-pages are kept as top-level pages.
 - **Block editor** (click ✏️ Edit on a question):
   - 📖 **Rich text**: bold, italic, underline, **highlight colours**, **text colours**, headings, lists, quotes, links, tables
   - 🖍️ **Highlight / note boxes**: Note, Tip, Important, Warning, Understand, Ask-interviewer, or a custom box
@@ -68,6 +74,7 @@ docker compose up -d --build  # rebuild after changing code
 - **📥 Import your own notes** (Word **.docx** or a **Google Docs link**): click **📥 Import** on a category (or ＋ in the sidebar → Import a document). Choose how to split it: lines starting with **“Q)”** (or any text you type), **Heading 1 / 2 / 3** (higher headings become sub-categories), or one page. A live preview lets you rename pages, **⤴ merge** a page into the one above, or leave pages out. Monospace text becomes ▶ code blocks; images, tables, lists, links, bold and colours are kept. Admins import shared content; everyone else imports privately. Google Docs links must be shared as “Anyone with the link”.
   - **Google Docs with tabs** keep their structure: you get the tab tree (tab → sub-tab → sub-sub-tab) with checkboxes. Every tab becomes a page; a tab with sub-tabs becomes a sub-category (its own text is the first page) or, if you choose, **one page** with the sub-tabs as sections. A 99-tab document imports in about 40 seconds, with progress. (A downloaded .docx loses the tabs, so use the link.)
 - **📖 Terms (glossary)**: short explanations of words that keep coming up (libuv, hydration, idempotent, JWT…), 26 included. Terms are **linked automatically** inside pages (first mention, dotted underline): click one to read it in a side panel without leaving the page. Open **📖 Terms** in the top bar for the A–Z list and search, select any word on a page → **📖 Add as term** to create your own (private, or shared if you're an admin), and edit terms with the same block editor as pages. Turn the links off in Settings.
+- **🤖 Ask AI** (optional, set up by an admin): on any page, term or selected text, ask an AI for more detail, examples, a diagram or interview follow-ups. The answer streams in, is shown as page blocks (text, code, Mermaid diagrams), and can be **saved as a page** wherever you choose: as a sub-page of the current page or in any category. Learners save privately, admins save for everyone. See [AI assistant](#-ai-assistant-optional) below.
 - **🔍 Zoom** any image, diagram or chart: click it (or the ⤢ Zoom button) for a full-screen view. Scroll or pinch to zoom, drag to move, double-click to zoom in, `+` / `-` / `0` / `1` keys, Esc to close. SVGs and charts are re-drawn at the zoom level, so they stay sharp.
 - **⚡ Quick Revise**: the page's notes plus your own, in one page, filterable by category (including its sub-categories), must-know only, printable. **Select any text** in a question → **📌 Add to Quick Revise**.
 - **🏋️ Practice mode** (top bar) blurs the solutions until you click, so you try first.
@@ -76,6 +83,38 @@ docker compose up -d --build  # rebuild after changing code
 - **Search** across titles, content, code and notes. Filters: Must-know, Starred, To learn.
 - **Backup** (admin): Export / Import the shared content as JSON, or Reset it to the default content (Settings). Private content and progress survive a reset.
 - Light / dark theme, and it works on mobile.
+
+---
+
+## 🤖 AI assistant (optional)
+
+Off by default. An admin turns it on in **Settings → 🤖 AI assistant**:
+
+1. **＋ Add provider** → pick the service, paste the API key, choose a model → **Test**.
+2. Tick **Enabled**. Choose who may use it (everyone or admins only) and a per-user hourly limit (admins are never limited).
+
+| Service | What to enter |
+|---|---|
+| **Claude** (Anthropic) | API key from console.anthropic.com, model e.g. `claude-sonnet-5` |
+| **OpenAI** | API key and a model id from platform.openai.com/docs/models |
+| **Google Gemini** | API key from Google AI Studio and a model id from ai.google.dev/gemini-api/docs/models |
+| **Ollama** (free, runs on your computer) | no key; base URL `http://host.docker.internal:11434`, and a model you pulled (`ollama list`) |
+| **Any OpenAI-compatible service** (Groq, OpenRouter, Mistral, DeepSeek, Together, LM Studio, a company gateway…) | its base URL (presets included), key and model |
+
+**Adding a new AI tool later needs no code** if it speaks the OpenAI chat-completions API (most do): choose *OpenAI-compatible* and enter its base URL. API keys are encrypted (AES-256-GCM) before they're stored and are never sent back to the browser.
+
+You can also configure providers with environment variables instead of the UI (see the commented examples in `docker-compose.yml`):
+
+```bash
+AI_ENABLED=true
+ANTHROPIC_API_KEY=sk-ant-...        # optional ANTHROPIC_MODEL
+OPENAI_API_KEY=sk-...               # together with OPENAI_MODEL=<model id>
+GEMINI_API_KEY=...                  # together with GEMINI_MODEL=<model id>
+# any number of providers as JSON; apiKeyEnv reads the key from another variable
+AI_PROVIDERS=[{"id":"groq","type":"openai-compatible","name":"Groq","baseUrl":"https://api.groq.com/openai/v1","model":"<model id>","apiKeyEnv":"GROQ_API_KEY"}]
+```
+
+For a service with a different API, add an adapter in `server/src/ai/adapters/` (one file exporting `type`, `label`, `defaults` and an `async *stream()` generator that yields text; `server/src/ai/adapters/index.js` explains the contract) and register it there.
 
 ---
 
