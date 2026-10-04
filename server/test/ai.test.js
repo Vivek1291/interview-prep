@@ -92,7 +92,9 @@ before(async () => {
 after(async () => { await mongoose.disconnect(); fake.close(); });
 
 test('not set up: status says disabled and asking explains how to enable it', async () => {
-  assert.equal((await learner.get('/api/ai/status').expect(200)).body.data.enabled, false);
+  const notSetUp = (await learner.get('/api/ai/status').expect(200)).body.data;
+  assert.equal(notSetUp.enabled, false);
+  assert.equal(notSetUp.reason, 'no-provider', 'the UI can explain what is missing');
   const r = await ask(learner, { question: 'Explain more' }, 400);
   assert.match(r.body.message, /Settings → AI/);
   await learner.get('/api/admin/ai').expect(403);
@@ -126,6 +128,7 @@ test('admin configures providers: keys are encrypted and never sent back', async
   await admin.put('/api/admin/ai').send({ providers: [{ name: 'x', type: 'openai', model: 'm', baseUrl: 'file:///etc/passwd' }] }).expect(400);
 
   const status = (await learner.get('/api/ai/status').expect(200)).body.data;
+  assert.equal(status.reason, null);
   assert.equal(status.enabled, true);
   assert.deepEqual(status.providers.map((p) => p.name), ['Claude', 'OpenAI', 'Groq', 'Gemini', 'Ollama']);
   assert.ok(!JSON.stringify(status).includes('Key') && !JSON.stringify(status).includes('sk-'), 'no key info for users');
@@ -176,7 +179,9 @@ test('provider errors are explained; admins can test a provider', async () => {
 
 test('admins-only mode and the hourly limit', async () => {
   await admin.put('/api/admin/ai').send({ allow: 'admins' }).expect(200);
-  assert.equal((await learner.get('/api/ai/status').expect(200)).body.data.enabled, false);
+  const adminsOnly = (await learner.get('/api/ai/status').expect(200)).body.data;
+  assert.equal(adminsOnly.enabled, false);
+  assert.equal(adminsOnly.reason, 'admins-only');
   await ask(learner, { question: 'q' }, 403);
   assert.equal((await ask(admin, { question: 'q' })).error, undefined);
 

@@ -696,3 +696,5 @@ input[aria-invalid="true"] { border-color: var(--danger); }
   .app { display: block; height: auto; }
   .content { overflow: visible; }
 }
+.ai-setup { display: flex; flex-direction: column; gap: 12px; align-items: flex-start; }
+.ai-setup p { margin: 0; line-height: 1.55; }

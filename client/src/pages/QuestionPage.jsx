@@ -1,6 +1,6 @@
 import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
-import { useAiEnabled, useQuestion, useQuestionMutations, useTree } from '../api/hooks';
+import { useQuestion, useQuestionMutations, useTree } from '../api/hooks';
 import { useAuth } from '../auth/AuthProvider';
 import { NodeSelect, QuestionFormModal } from '../components/Forms';
 import { Breadcrumb } from './CategoryPage';
@@ -40,7 +40,6 @@ export default function QuestionPage() {
   const [newTerm, setNewTerm] = useState(null);       // text selected for "Add as term"
   const [addingSub, setAddingSub] = useState(false);  // "＋ Sub-page" form
   const [askAi, setAskAi] = useState(null);           // { selection? } while the AI panel is open
-  const aiEnabled = useAiEnabled();
   useTermLinks(contentRef, { active: !editing, content: question?.blocks });   // glossary terms become clickable
 
   // Remember last visited question for the dashboard "continue" card
@@ -140,7 +139,7 @@ export default function QuestionPage() {
           <h1>{question.title}</h1>
         )}
         <div className="q-actions">
-          {!editing && aiEnabled && <button className="btn" onClick={() => setAskAi({})} title="Ask an AI for more detail, examples or a diagram">🤖 Ask AI</button>}
+          {!editing && <button className="btn" onClick={() => setAskAi({})} title="Ask an AI for more detail, examples or a diagram">🤖 Ask AI</button>}
           {!editing && <button className="btn" onClick={() => setAddingSub(true)} title={isAdmin ? 'Add a page inside this page (shared)' : 'Add your own private page inside this page'}>＋ Sub-page</button>}
           {editing ? (
             <>
@@ -210,7 +209,7 @@ export default function QuestionPage() {
         disabled={editing}
         onAdd={(text) => m.addMyNote.mutate({ id, text: escapeHtml(text) }, { onSuccess: () => toast('📌 Added to my Quick Revise notes') })}
         onAddTerm={(text) => setNewTerm(text)}
-        onAskAi={aiEnabled ? (text) => setAskAi({ selection: text }) : undefined}
+        onAskAi={(text) => setAskAi({ selection: text })}
       />
       {askAi && (
         <Suspense fallback={null}>

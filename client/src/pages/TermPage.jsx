@@ -2,7 +2,7 @@ import { Suspense, lazy, useCallback, useEffect, useRef, useState } from 'react'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { api } from '../api/client';
-import { useAiEnabled, useTerm, useTermMutations } from '../api/hooks';
+import { useTerm, useTermMutations } from '../api/hooks';
 import { useApp } from '../AppContext';
 import { BlockView } from '../components/blocks/Block';
 import BlocksEditor from '../components/blocks/BlocksEditor';
@@ -23,7 +23,6 @@ export default function TermPage() {
   const [dirty, setDirty] = useState(false);
   const ref = useRef(null);
   const [askAi, setAskAi] = useState(false);
-  const aiEnabled = useAiEnabled();
   useTermLinks(ref, { active: !draft, content: term?.blocks, exclude: id });   // link OTHER terms
   const { data: mentions } = useQuery({ queryKey: ['search', term?.term], queryFn: () => api.search(term.term), enabled: !!term });
 
@@ -76,7 +75,7 @@ export default function TermPage() {
             </>
           ) : (
             <>
-              {aiEnabled && <button className="btn" onClick={() => setAskAi(true)}>🤖 Ask AI</button>}
+              <button className="btn" onClick={() => setAskAi(true)}>🤖 Ask AI</button>
               {term.canEdit && <button className="btn btn-primary" onClick={startEdit}>✏️ Edit</button>}
               {term.canEdit && <button className="btn btn-danger-ghost" onClick={remove} title="Delete term">🗑</button>}
             </>

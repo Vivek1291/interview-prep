@@ -20,8 +20,6 @@ export const useQuestion = (id) => useQuery({ queryKey: keys.question(id), query
 export const useSearch = (q) => useQuery({ queryKey: keys.search(q), queryFn: () => api.search(q), enabled: q.trim().length > 1 });
 export const useQuickNotes = (node) => useQuery({ queryKey: keys.quickNotes(node), queryFn: () => api.quickNotes(node) });
 export const useAiStatus = () => useQuery({ queryKey: ['aiStatus'], queryFn: api.aiStatus, staleTime: 60 * 1000 });
-/** true when the AI assistant is set up and this user may use it */
-export const useAiEnabled = () => !!useAiStatus().data?.enabled;
 export const useTerms = () => useQuery({ queryKey: keys.terms, queryFn: api.terms, staleTime: 60 * 1000 });
 export const useTerm = (id) => useQuery({ queryKey: keys.term(id), queryFn: () => api.term(id), enabled: !!id });
 export function useTermMutations() {

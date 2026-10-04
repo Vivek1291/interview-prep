@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { api } from '../api/client';
 import { useApp } from '../AppContext';
@@ -58,8 +58,11 @@ export default function AiSettingsCard() {
   const [editing, setEditing] = useState(null);      // provider | 'new'
   const [tests, setTests] = useState({});
   const [saving, setSaving] = useState(false);
+  const cardRef = useRef(null);
 
   useEffect(() => { api.aiSettings().then(setS).catch((e) => toast(e.message, 'error')); }, [toast]);
+  // "Set up the AI assistant" links to /settings#ai: bring the card into view once it has loaded
+  useEffect(() => { if (s && window.location.hash === '#ai') cardRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }); }, [s]);
   if (!s) return <div className="card"><h3>🤖 AI assistant</h3><div className="skeleton" /></div>;
 
   const persist = async (next) => {
@@ -94,7 +97,7 @@ export default function AiSettingsCard() {
   const typeLabel = (t) => s.adapterTypes.find((x) => x.type === t)?.label || t;
 
   return (
-    <div className="card ai-settings">
+    <div className="card ai-settings" id="ai" ref={cardRef}>
       <h3>🤖 AI assistant</h3>
       <p className="muted small">Lets users ask an AI for more detail on any page, term or selected text, and save the answer as a page. Add any provider: Claude, OpenAI, Gemini, a local Ollama model, or any OpenAI-compatible service (Groq, OpenRouter, Mistral, DeepSeek, LM Studio…).</p>
       <div className="ai-settings-grid">

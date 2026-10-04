@@ -29,8 +29,14 @@ const aiService = {
   /** What the current user may do (no secrets). */
   async status(user) {
     const s = await settings.load();
+    // reason (when not enabled) lets the UI explain what's missing instead of hiding the AI buttons
+    let reason = null;
+    if (!s.providers.length) reason = 'no-provider';
+    else if (!s.enabled) reason = 'disabled';
+    else if (!canUse(user, s)) reason = 'admins-only';
     return {
       enabled: canUse(user, s),
+      reason,
       providers: canUse(user, s) ? s.providers.map(({ id, name, type, model }) => ({ id, name, type, model })) : [],
       defaultProvider: s.defaultProvider,
       limitPerHour: isAdmin(user) ? 0 : s.limitPerHour,

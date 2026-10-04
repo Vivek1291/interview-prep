@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
 import { aiAskStream, api } from '../api/client';
 import { keys, useAiStatus, useTree } from '../api/hooks';
@@ -110,6 +110,7 @@ export default function AskAiPanel({ context, onClose }) {
           <span><b>🤖 Ask AI</b> <span className="muted small">about “{context.title}”</span></span>
           <button className="icon-btn" ref={closeRef} onClick={close} aria-label="Close (Esc)">✕</button>
         </div>
+        {status && !status.enabled ? <AiSetupNotice reason={status.reason} isAdmin={isAdmin} onClose={close} /> : (
         <div className="term-panel-body">
           {context.selection && <blockquote className="ai-selection">“{context.selection.length > 300 ? `${context.selection.slice(0, 300)}…` : context.selection}”</blockquote>}
           <div className="ai-chips">
@@ -151,9 +152,32 @@ export default function AskAiPanel({ context, onClose }) {
             </div>
           )}
         </div>
+        )}
       </aside>
     </>,
     document.body,
+  );
+}
+
+// Shown instead of the chat when the assistant isn't usable yet, so the button never just "does nothing".
+function AiSetupNotice({ reason, isAdmin, onClose }) {
+  const text = {
+    'no-provider': 'No AI service has been connected yet.',
+    disabled: 'The AI assistant is switched off.',
+    'admins-only': 'The AI assistant is currently available to admins only.',
+  }[reason] || 'The AI assistant is not available.';
+  return (
+    <div className="term-panel-body ai-setup">
+      <p><b>{text}</b></p>
+      {isAdmin ? (
+        <>
+          <p className="muted">Connect Claude, OpenAI, Gemini, a local Ollama model or any OpenAI-compatible service, then tick <b>Enabled</b>. It takes about a minute: add a provider, paste its API key, press Test.</p>
+          <Link className="btn btn-primary" to="/settings#ai" onClick={onClose}>⚙️ Set up the AI assistant</Link>
+        </>
+      ) : (
+        <p className="muted">Ask your admin to set it up in Settings → 🤖 AI assistant. Once it's on, you can ask for more detail on any page, term or selected text and save the answers as your own private pages.</p>
+      )}
+    </div>
   );
 }
 
