@@ -29,6 +29,7 @@ const TREE = [
         ],
       },
       { key: 'frontend/nextjs', title: 'Next.js', icon: '▲', color: '#64748b', description: 'Routing, server components, data fetching, rendering strategies.', files: ['36-nextjs-fundamentals.md', '37-nextjs-data.md'] },
+      { key: 'frontend/security', files: ['42-web-security.md'] },
       { key: 'frontend/html-css', title: 'HTML & CSS', icon: '🎨', color: '#f97316', description: 'Semantics, accessibility, layout, responsive design.' },
     ],
   },

@@ -547,3 +547,33 @@ console.log('the spy recorded the call', send.calls.length === 1 && send.calls[0
 - Unique data per test, fake time, mock third parties.
 - Retries are for collecting traces, not for hiding the problem.
 :::
+
+=== XSS
+@aliases cross-site scripting, cross site scripting
+@summary Cross-site scripting: attacker-controlled JavaScript running on your origin (via `innerHTML`, `dangerouslySetInnerHTML`, unsafe URLs or third-party scripts). React escapes `{value}` by default; sanitize HTML with DOMPurify and add a CSP.
+::: code javascript Escaping turns markup into text (runnable)
+const escape = (s) => s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#x27;' }[c]));
+console.log('payload becomes harmless text', escape('<img src=x onerror=alert(1)>') === '&lt;img src=x onerror=alert(1)&gt;' ? '✅' : '❌ FAIL');
+:::
+
+=== Content Security Policy
+@aliases CSP, Content-Security-Policy
+@summary An HTTP response header listing which sources of scripts, styles, images, frames and connections a page may use; a strict nonce-based policy blocks injected inline scripts and event handlers even when an XSS bug exists.
+::: text 📖 Measured
+- Without CSP an `innerHTML` XSS payload executed in Chrome; with `script-src 'self' 'nonce-…'` it was blocked (1 violation event) while the page's own nonce script ran.
+- Roll out with `Content-Security-Policy-Report-Only` first.
+:::
+
+=== Clickjacking
+@aliases UI redressing, frame-ancestors
+@summary Tricking users into clicking your page loaded in an invisible iframe on another site. Prevent it with `Content-Security-Policy: frame-ancestors 'none'` (or an allow-list) and `X-Frame-Options: DENY`.
+::: text 📖 Measured
+- Without headers the page loaded inside the attacker's iframe with its buttons; with `frame-ancestors 'none'` Chrome refused to render it.
+:::
+
+=== Compositing
+@aliases compositor, compositor thread, rasterization
+@summary The last rendering step: rasterized layers (pixel tiles) are combined into the frame on the GPU by the compositor thread. Animating `transform`/`opacity` on a layer skips layout and paint (measured: 1 layout vs 62 for `left` in a 1 s animation).
+::: text 📖 Pipeline
+- Style → Layout (where) → Paint (what) → Rasterize (pixels) → Composite (layers → screen).
+:::

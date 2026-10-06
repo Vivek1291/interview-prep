@@ -271,6 +271,373 @@ web.dev: Avoid large, complex layouts and layout thrashing | https://web.dev/art
 What forces layout (Paul Irish) | https://gist.github.com/paulirish/5d52fb081b3570c81e3a
 :::
 
+=== What happens after layout? Paint, rasterization and compositing (CPU vs GPU)
+@p 2
+@tags browser, rendering, rasterization, compositing, gpu
+@quick
+- **Paint** (main thread, CPU) records **what** to draw as a display list ("rectangle here, text there"); **rasterization** turns that into **pixels** (tiles, on raster threads, usually GPU-accelerated); **compositing** combines layers into the final frame (compositor thread + GPU).
+- Pipeline: Style → Layout (**where**) → Paint (**what**) → Rasterize (**pixels**) → Composite (**layers → screen**).
+- Elements with their own **layer** (transform/opacity animations, `will-change`, video, canvas) can be moved by the compositor **without layout or paint**.
+- Measured in Chrome: animating a box 500 px for 1 s with **`left` caused 62 layouts**; with **`transform`, 1 layout**.
+- Check GPU status at `chrome://gpu`; inspect layers in DevTools → Layers; too many layers waste GPU memory.
+
+::: text 🧒 In simple words
+Making a poster: **layout** decides where each picture goes, **paint** writes the drawing instructions ("draw a red circle here"), **rasterization** is the printer turning instructions into dots, and **compositing** is stacking transparent sheets on top of each other. To move one picture, you can just **slide its sheet** (composite) instead of reprinting the whole poster.
+:::
+
+::: text 📖 Detailed answer
+| Stage | Thread / hardware | Output | Triggered by |
+|---|---|---|---|
+| Style | main (CPU) | computed styles | class/style changes |
+| Layout | main (CPU) | boxes with positions and sizes | geometry changes |
+| Paint | main (CPU) | display list (draw commands) per layer | visual changes |
+| Rasterize | raster worker threads, GPU (OOP raster) | bitmap **tiles** | new/changed paint, zoom |
+| Composite | compositor thread + GPU | the frame on screen | scrolling, transform/opacity changes |
+
+### Tiles
+Long pages aren't rasterized in one bitmap: the browser splits layers into **tiles** and rasterizes the ones near the viewport first, which is why fast scrolling can briefly show checkerboard/blank areas.
+
+### Layers and why transform is cheap
+When an element is on its own compositor layer, changing `transform` or `opacity` just tells the GPU to draw the existing texture somewhere else or more transparent. No layout, no paint, no rasterization. The compositor thread can even keep animating while the main thread is busy.
+
+### Measured (Chrome, `Performance.getMetrics`, 1 s animation)
+| Animated property | LayoutCount | Layout time |
+|---|---|---|
+| `left` | 62 | 2.9 ms |
+| `transform: translateX` | 1 | 0.06 ms |
+
+### Costs
+Each layer needs GPU memory (width × height × 4 bytes); hundreds of `will-change: transform` elements can make things slower, especially on mobile.
+:::
+
+::: diagram From DOM to pixels on screen
+flowchart LR
+  S["Style (main)"] --> L["Layout: where (main)"]
+  L --> P["Paint: what, display list (main)"]
+  P --> R["Rasterize: pixels in tiles (raster threads, GPU)"]
+  R --> C["Composite: layers to a frame (compositor, GPU)"]
+  T["transform or opacity change on a layer"] -.->|"skips layout, paint, raster"| C
+:::
+
+::: image Paint, rasterization and compositing (measured layouts)
+/images/javascript/raster-composite.svg
+:::
+
+::: chart bar Measured in Chrome: layouts while animating a box for 1 second
+Animated property,Layouts
+left,62
+transform,1
+:::
+
+::: text 🪜 Step by step
+Changing `box.style.transform = 'translateX(100px)'` on a layered element:
+1. Style recalculation: the new transform value is computed (cheap).
+2. Layout: **skipped**: transform doesn't change geometry in the layout tree.
+3. Paint and rasterization: **skipped**: the layer's pixels are unchanged.
+4. Compositor: draws the existing layer texture 100 px to the right.
+5. With `left: 100px` instead, steps 2–4 all run, every frame.
+:::
+
+::: code javascript Which pipeline stages a CSS property change triggers (runnable)
+// Simplified from csstriggers.com / Chrome behaviour.
+const LAYOUT = ['width', 'height', 'left', 'top', 'margin', 'padding', 'font-size', 'display', 'border-width'];
+const PAINT_ONLY = ['color', 'background-color', 'box-shadow', 'border-color', 'visibility', 'outline'];
+const COMPOSITE_ONLY = ['transform', 'opacity'];
+function stagesFor(prop) {
+  if (COMPOSITE_ONLY.includes(prop)) return ['style', 'composite'];
+  if (PAINT_ONLY.includes(prop)) return ['style', 'paint', 'raster', 'composite'];
+  if (LAYOUT.includes(prop)) return ['style', 'layout', 'paint', 'raster', 'composite'];
+  return ['style', 'layout', 'paint', 'raster', 'composite'];   // assume the worst when unsure
+}
+for (const p of ['left', 'background-color', 'transform', 'opacity']) console.log(p.padEnd(18), stagesFor(p).join(' → '));
+console.log('transform skips layout and paint', !stagesFor('transform').includes('layout') && !stagesFor('transform').includes('paint') ? '✅' : '❌ FAIL');
+console.log('left needs layout', stagesFor('left').includes('layout') ? '✅' : '❌ FAIL');
+const framesPerSecond = 60;
+console.log(`animating left for 1 s ≈ ${framesPerSecond} layouts (measured 62), transform ≈ 1 (measured 1)`, '✅');
+:::
+
+::: warning ⚠️ Common mistakes
+- Saying "paint" when you mean the whole render: paint ≠ rasterization ≠ compositing.
+- Animating `top/left/width` for movement instead of `transform`.
+- `will-change` on everything ("layer explosion").
+- Assuming the GPU does all the work (style, layout and paint are still main-thread CPU work).
+:::
+
+::: understand
+- Layout = where, paint = what, raster = pixels, composite = stack layers; transform/opacity jump straight to composite.
+:::
+
+::: ask
+- *"Does this animation run while the main thread is busy?"* Compositor-only properties keep it smooth.
+:::
+
+::: important ⭐ Say this in the interview
+"After style and layout, the main thread paints, which records drawing commands into a display list; rasterization turns those commands into pixels in tiles, on raster threads with GPU acceleration; and the compositor thread combines layers into the frame on the GPU. If an element has its own layer, changing transform or opacity skips layout, paint and raster entirely, so the compositor just moves the texture. I measured that animating left caused 62 layouts in a second while transform caused one. Layers cost GPU memory, so I promote only what animates, and check chrome://gpu and the Layers panel when debugging."
+:::
+
+::: links
+Chrome: Inside look at modern web browser (part 3) | https://developer.chrome.com/blog/inside-browser-part3
+web.dev: Stick to compositor-only properties | https://web.dev/articles/stick-to-compositor-only-properties-and-manage-layer-count
+Chrome: RenderingNG architecture | https://developer.chrome.com/docs/chromium/renderingng-architecture
+:::
+
+=== How does the browser produce frames? (vsync, the 16.7 ms budget, dropped frames)
+@p 2
+@tags browser, frames, vsync, jank, performance
+@quick
+- A 60 Hz screen refreshes every **16.7 ms** (120 Hz: 8.3 ms). The browser tries to deliver a new frame for each refresh (**vsync**).
+- Each frame's main-thread work (input, JS, rAF, style, layout, paint) must fit the budget; if it doesn't, the frame is **dropped** and the update appears at the **next** vsync.
+- Measured in Chrome: after a 25 ms task, rAF callback gaps were **16.5 → 25.0 → 8.4 → 16.6 ms**: the work ended at 25 ms but the next frame started on the grid at ~33.3 ms: **one dropped frame**.
+- Dropped frames = **jank**: an animation jumps (position 1 → 3). Time-based animation keeps the *position* correct even when frames drop.
+- The **Long Animation Frames** API reports slow frames: a 120 ms blocking task appeared as a **135.6 ms** entry.
+
+::: text 🧒 In simple words
+The screen is a **train that leaves every 16.7 ms**. Each frame is a passenger. If the passenger (your frame) is ready in time, it gets on. If it's still packing (long JavaScript) when the train leaves, it waits for the **next train**: the screen shows the old picture for one more trip, and the movement looks like it jumped.
+:::
+
+::: text 📖 Detailed answer
+### The frame loop
+1. Vsync signal (every 16.7 ms at 60 Hz).
+2. Input events → JS tasks → `requestAnimationFrame` callbacks.
+3. Style → layout → paint (main thread), then raster and composite.
+4. The frame is presented at a vsync. If not ready, the previous frame stays on screen.
+
+### Measured in Chrome (rAF callbacks; a 25 ms busy loop inside one callback)
+| Gap between callbacks | Meaning |
+|---|---|
+| 16.5 ms | normal frame |
+| 25.0 ms | the next callback started late (the 25 ms task blocked it) |
+| 8.4 ms | the browser caught up to the vsync grid: 25 + 8.4 = 33.4 ms |
+| 16.6 ms | back to normal |
+So the work that finished at 25 ms reached the screen with the frame at ~33.3 ms, and the frame at 16.7 ms was lost.
+
+### Consequences
+- Animations: move by **elapsed time** (`x = speed × (now − start)`), not by "one step per frame", so the object is in the right place even if a frame drops.
+- Input responsiveness (INP): a long task delays the next paint after a click; INP measures exactly that.
+- Variable refresh rate displays and the compositor make real timing more nuanced, but the 16.7 ms model is the right mental picture.
+
+### Measuring
+- `requestAnimationFrame` timestamps, the DevTools frame track (dropped frames in red/yellow).
+- `new PerformanceObserver(cb).observe({ type: 'long-animation-frame' })`: a 120 ms task was reported as one 135.6 ms long animation frame (task + rendering).
+:::
+
+::: diagram A frame that misses the deadline
+sequenceDiagram
+  participant V as Vsync (every 16.7 ms)
+  participant M as Main thread
+  participant S as Screen
+  V->>M: "frame 1 at 0 ms"
+  M-->>S: "frame 1 ready in time"
+  V->>M: "frame 2 at 16.7 ms"
+  Note over M: "long task until 25 ms: deadline missed"
+  S->>S: "frame 1 stays on screen (dropped frame)"
+  V->>M: "frame 3 at 33.3 ms"
+  M-->>S: "new frame shown at 33.3 ms"
+:::
+
+::: image Frames, vsync and dropped frames (measured)
+/images/javascript/frames.svg
+:::
+
+::: chart line Measured in Chrome: gap between rAF callbacks around a 25 ms task (ms)
+Callback,Gap (ms)
+1,16.5
+2,25
+3,8.4
+4,16.6
+5,16.7
+:::
+
+::: text 🪜 Step by step
+A game moving a player 10 px per frame at 60 Hz:
+1. Frames at 0, 16.7, 33.3, 50 ms should show x = 0, 10, 20, 30.
+2. A 25 ms task runs during frame 2.
+3. Frame 2's deadline (16.7 ms) is missed; the screen keeps showing x = 0.
+4. At 33.3 ms the next frame is presented. With step-per-frame logic it shows x = 10 (the game "slowed down"); with time-based logic it shows x = 20 (correct position, one visible jump).
+5. Either way the user sees jank; the fix is to remove or split the long task.
+:::
+
+::: code javascript Frame scheduling model: when does work reach the screen? (runnable)
+// Given a refresh interval and how long each frame's work takes, compute when each update is shown.
+function present(workMs, interval = 1000 / 60) {
+  const shown = [];
+  let t = 0;
+  for (const w of workMs) {
+    const ready = t + w;
+    const vsync = Math.ceil(ready / interval) * interval;   // next refresh after the work is done
+    shown.push(+vsync.toFixed(1));
+    t = vsync;                                              // next frame starts at that vsync
+  }
+  return shown;
+}
+const normal = present([5, 5, 5, 5]);
+const withLongTask = present([5, 25, 5, 5]);
+console.log('normal frames shown at   ', normal.join(', '));
+console.log('with a 25 ms task, shown at', withLongTask.join(', '));
+console.log('each normal frame takes one vsync', normal.join() === '16.7,33.3,50,66.7' ? '✅' : '❌ FAIL');
+console.log('the 25 ms frame lands on the vsync after next (one dropped frame)', withLongTask[1] === 50 ? '✅' : '❌ FAIL');
+
+// Time-based movement stays correct when frames drop
+const speed = 0.6;                                          // px per ms
+console.log('position at 50 ms (time-based):', speed * 50, 'px', speed * 50 === 30 ? '✅' : '❌ FAIL');
+:::
+
+::: warning ⚠️ Common mistakes
+- "16 ms per frame for JavaScript" (the budget also covers style, layout and paint, so JS should take much less).
+- Step-per-frame animations that slow down on slow devices or speed up on 120 Hz screens.
+- Using `setInterval(fn, 16)` for animation (not aligned with vsync).
+- Confusing a slow network (late content) with dropped frames (main-thread jank).
+:::
+
+::: understand
+- The screen sets the rhythm; your work must fit between beats or the beat is skipped.
+:::
+
+::: ask
+- *"Is the jank during animation, scrolling or after input?"* It points to rAF work, scroll handlers or event handlers.
+:::
+
+::: important ⭐ Say this in the interview
+"Displays refresh at a fixed rhythm, every 16.7 milliseconds at 60 hertz, and the browser tries to produce a frame for each vsync. All main-thread work for the frame, input, JavaScript, rAF, style, layout and paint, has to fit in that budget; if it doesn't, the frame is dropped and the update appears at the next vsync. I measured it: after a 25 millisecond task the rAF gaps went 16.5, 25, 8.4, 16.6, so the result reached the screen at about 33 milliseconds, one dropped frame. That's jank, and the same long tasks hurt INP. I use time-based animation, keep tasks short, and check the Long Animation Frames API and the DevTools frames track."
+:::
+
+::: links
+web.dev: Rendering performance | https://web.dev/articles/rendering-performance
+Chrome: Long Animation Frames API | https://developer.chrome.com/docs/web-platform/long-animation-frames
+MDN: requestAnimationFrame | https://developer.mozilla.org/en-US/docs/Web/API/Window/requestAnimationFrame
+:::
+
+=== Does the browser paint the whole page at once? (progressive rendering)
+@p 2
+@tags browser, rendering, streaming, progressive, lcp
+@quick
+- **No.** The HTML parser builds the DOM **incrementally** as bytes arrive, and the browser paints whatever is ready at the next frame: users see the page **in chunks**.
+- Measured with a streamed page (3 chunks, 300 ms apart): header painted at **28 ms**, sidebar at **308 ms**, main text at **612 ms**; the LCP candidate updated each time.
+- What stops early painting: **CSS in `<head>`** (render-blocking: no paint until loaded), **parser-blocking scripts**, and server responses that buffer the whole page.
+- Server streaming (Next.js/React `<Suspense>`, `res.write` chunks) uses this to show a shell immediately.
+- Layout and paint happen many times during load: each new chunk can cause **reflow/repaint**, and late-inserted content above existing content causes **CLS**.
+
+::: text 🧒 In simple words
+A long page arrives like a **newspaper being printed page by page**. The browser doesn't wait for the last page; it shows the front page as soon as it's printed, then adds more as they come. The only thing it waits for is the **style guide** (CSS), so it doesn't show pages in the wrong font and then reprint them.
+:::
+
+::: text 📖 Detailed answer
+### How a long HTML file is processed
+1. Bytes arrive over the network in chunks (TCP packets / HTTP/2 frames).
+2. The parser tokenizes and builds DOM nodes as it goes (speculative preload scanner fetches resources early).
+3. Once CSS in `<head>` is ready, the browser can render: at the next frame it lays out and paints **what exists so far**.
+4. More HTML arrives → more DOM → another layout/paint at a later frame.
+5. Each paint can update LCP (a bigger element appeared) and may cause layout shifts.
+
+### Measured: a server that streams 3 chunks 300 ms apart
+| Chunk | Painted at | LCP candidate |
+|---|---|---|
+| `<header>` | 28 ms | header (846 px²) |
+| `<aside>` sidebar | 308 ms | sidebar (882 px²) |
+| `<main>` with large text | 612 ms | paragraph (324,254 px²) |
+
+### What changes it
+| Factor | Effect |
+|---|---|
+| stylesheet in `<head>` | nothing paints until it loads (measured 600 ms CSS → FCP 612 ms) |
+| classic `<script>` mid-body | parsing (and thus later content) waits for it |
+| server buffering (no streaming) | browser gets everything at the end |
+| `<Suspense>` streaming (React/Next.js) | shell first, slow parts later in the same response |
+| `content-visibility: auto` | offscreen sections skip layout/paint until needed |
+:::
+
+::: diagram Bytes to pixels, chunk by chunk
+sequenceDiagram
+  participant S as Server
+  participant P as Parser
+  participant R as Renderer
+  S->>P: "chunk 1: header"
+  P->>R: "DOM so far"
+  R->>R: "layout + paint at next frame (28 ms)"
+  S->>P: "chunk 2: sidebar"
+  R->>R: "layout + paint (308 ms)"
+  S->>P: "chunk 3: main content"
+  R->>R: "layout + paint (612 ms), new LCP candidate"
+:::
+
+::: image Does the browser paint the page all at once? (measured)
+/images/javascript/progressive.svg
+:::
+
+::: chart bar Measured: when each streamed chunk was painted (ms)
+Chunk,Painted at (ms)
+header,28
+sidebar,308
+main text,612
+:::
+
+::: text 🪜 Step by step
+Why a slow stylesheet hides everything while a slow chunk doesn't:
+1. CSS in `<head>` is render-blocking: the browser won't paint the first frame without it (avoids a flash of unstyled content).
+2. A 600 ms stylesheet → first paint at 612 ms even though the HTML arrived at once.
+3. After CSS is ready, there's no such rule for HTML: whatever DOM exists is painted.
+4. So a streamed page shows the header at 28 ms and the rest as it arrives.
+5. Design implication: ship critical CSS early, stream HTML, reserve space for later content (avoid CLS).
+:::
+
+::: code javascript server.js: a streaming response that paints progressively (Node, no framework)
+const http = require('node:http');
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+http.createServer(async (req, res) => {
+  res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+  // 1) shell + header immediately (inline critical CSS so nothing blocks rendering)
+  res.write('<!doctype html><html><head><style>aside{float:left;width:200px}main{margin-left:220px}</style></head><body>');
+  res.write('<header>My Shop</header>');
+  // 2) slower data: the browser paints the header meanwhile
+  await sleep(300);
+  res.write('<aside>Categories…</aside>');
+  await sleep(300);
+  res.write('<main><h1>Products</h1><p>All products are listed here.</p></main>');
+  res.end('</body></html>');
+}).listen(3000, () => console.log('http://localhost:3000'));
+:::
+
+::: code javascript Progressive rendering model: paints and LCP candidates (runnable)
+// Chunks arrive at given times; the browser paints at the next frame after each chunk.
+const frame = 1000 / 60;
+const chunks = [{ at: 20, el: 'header', area: 846 }, { at: 300, el: 'sidebar', area: 882 }, { at: 600, el: 'main text', area: 324254 }];
+let lcp = null;
+const timeline = chunks.map((c) => {
+  const paintedAt = Math.ceil(c.at / frame) * frame;
+  if (!lcp || c.area > lcp.area) lcp = { ...c, paintedAt };
+  return `${c.el} painted at ${paintedAt.toFixed(0)} ms (LCP candidate: ${lcp.el})`;
+});
+console.log(timeline.join('\n'));
+console.log('content appears in 3 separate paints', timeline.length === 3 ? '✅' : '❌ FAIL');
+console.log('final LCP is the biggest element, painted last', lcp.el === 'main text' && Math.round(lcp.paintedAt) === 600 ? '✅' : '❌ FAIL');
+:::
+
+::: warning ⚠️ Common mistakes
+- Believing the page is painted once at the end (or once per element).
+- Large stylesheets in `<head>` hiding a streamed page.
+- Inserting late content above already-visible content (layout shift).
+- Buffering the whole response on the server (compression or frameworks that don't stream).
+:::
+
+::: understand
+- Parsing, layout and paint are incremental; render-blocking CSS is the gate for the first paint.
+:::
+
+::: ask
+- *"Does our server stream HTML, and what blocks the first paint?"*
+:::
+
+::: important ⭐ Say this in the interview
+"The browser doesn't wait for the whole page. The parser builds the DOM incrementally as bytes arrive and, once render-blocking CSS is ready, the browser lays out and paints whatever exists at the next frame, so long or streamed pages appear in chunks. I measured a page streamed in three chunks: the header painted at 28 milliseconds, the sidebar at 308 and the main text at 612, and the LCP candidate updated each time. What delays the first paint is CSS in the head and parser-blocking scripts, which is why we inline critical CSS, defer scripts and stream with Suspense."
+:::
+
+::: links
+web.dev: Critical rendering path | https://web.dev/articles/critical-rendering-path
+Jake Archibald: Fun hacks for faster content (streaming) | https://jakearchibald.com/2016/fun-hacks-faster-content/
+React: renderToPipeableStream | https://react.dev/reference/react-dom/server/renderToPipeableStream
+:::
+
 === async vs defer: how should scripts be loaded?
 @p 3
 @tags browser, scripts, async, defer, performance
@@ -631,6 +998,141 @@ console.log(`cold start ≈ ${total} ms of pure network latency before server wo
 ::: links
 MDN: How browsers work | https://developer.mozilla.org/en-US/docs/Web/Performance/How_browsers_work
 Cloudflare: What is DNS? | https://www.cloudflare.com/learning/dns/what-is-dns/
+:::
+
+=== HTTP/1.1 vs HTTP/2 vs HTTP/3: what changed?
+@p 2
+@tags browser, networking, http2, http3, quic
+@quick
+- **HTTP/1.1**: one request at a time per TCP connection; browsers open **~6 connections per origin**, so many small files queue (head-of-line blocking per connection).
+- **HTTP/2**: one TCP+TLS connection carries **many parallel streams** (multiplexing), **HPACK** header compression, stream priorities.
+- **HTTP/3**: HTTP over **QUIC (UDP)**: TLS 1.3 built in, **no TCP head-of-line blocking** between streams, faster setup (1-RTT, 0-RTT on resume), connection migration (Wi-Fi → mobile).
+- Measured in Chrome (local TLS, 60 images with 40 ms server delay each): **HTTP/1.1 430 ms**, **HTTP/2 58 ms**.
+- Old HTTP/1 tricks (domain sharding, sprites, bundling everything) are unnecessary or harmful with HTTP/2+.
+
+::: text 🧒 In simple words
+HTTP/1.1 is a **shop with 6 checkout counters** where each counter serves one customer at a time: 60 customers means 10 rounds. HTTP/2 is **one super counter serving everyone in parallel**. HTTP/3 is the same super counter, but if one customer drops their coins (lost packet), the others don't have to wait while they pick them up.
+:::
+
+::: text 📖 Detailed answer
+| | HTTP/1.1 | HTTP/2 | HTTP/3 |
+|---|---|---|---|
+| Transport | TCP (+TLS) | TCP + TLS (h2) | QUIC over UDP (TLS 1.3 inside) |
+| Requests per connection | 1 at a time (pipelining unused) | many concurrent streams | many concurrent streams |
+| Connections per origin | ~6 | 1 | 1 |
+| Head-of-line blocking | per connection | TCP-level: one lost packet stalls all streams | per stream only |
+| Header compression | none | HPACK | QPACK |
+| Handshake (new connection) | TCP 1 RTT + TLS 1–2 RTT | same | 1 RTT (0-RTT on resumption) |
+| Network switch | reconnect | reconnect | connection migration |
+
+### Measured (Chrome, local TLS server, 60 images, each delayed 40 ms by the server)
+| Protocol (`nextHopProtocol`) | Page load |
+|---|---|
+| `http/1.1` | 430 ms (≈ 60 / 6 connections × 40 ms + overhead) |
+| `h2` | 58 ms (all requests in flight at once) |
+
+### What it means for frontends
+- Don't shard domains or inline everything for HTTP/1 reasons; more origins = more connections and handshakes.
+- Still bundle sensibly (code splitting is fine), use `preconnect` for critical third-party origins.
+- HTTP/3 benefits most on lossy mobile networks; enable it at the CDN (Cloudflare, Fastly, CloudFront support it); browsers discover it via the `Alt-Svc` header.
+:::
+
+::: diagram Many requests over HTTP/1.1 vs HTTP/2
+flowchart LR
+  subgraph H1["HTTP/1.1: 6 connections, 1 request each at a time"]
+    A1["conn 1: img1, img7, img13..."]
+    A2["conn 2: img2, img8, img14..."]
+    A6["conn 6: img6, img12, img18..."]
+  end
+  subgraph H2["HTTP/2: 1 connection, 60 streams at once"]
+    S["stream 1 ... stream 60 interleaved"]
+  end
+:::
+
+::: image HTTP/1.1 vs HTTP/2 vs HTTP/3 (measured)
+/images/javascript/http-versions.svg
+:::
+
+::: chart bar Measured in Chrome: loading 60 images with 40 ms server delay each (ms)
+Protocol,Page load (ms)
+HTTP/1.1,430
+HTTP/2,58
+:::
+
+::: text 🪜 Step by step
+Why 60 small images take ~430 ms on HTTP/1.1:
+1. The browser opens up to 6 TCP+TLS connections to the origin.
+2. Each connection carries one request at a time; each response takes 40 ms on the server.
+3. 60 requests / 6 connections = 10 rounds × 40 ms ≈ 400 ms (+ handshakes) → 430 ms measured.
+4. HTTP/2: one connection, all 60 requests sent immediately as streams; responses come back interleaved after ~40 ms → 58 ms measured.
+5. With packet loss, HTTP/2's single TCP connection stalls all streams; HTTP/3 (QUIC) only stalls the affected stream.
+:::
+
+::: code javascript server.js: serving HTTP/2 with Node (and checking the protocol in the page)
+const http2 = require('node:http2');
+const fs = require('node:fs');
+
+// browsers only speak HTTP/2 over TLS ("h2"); use a real certificate in production (a CDN usually does this)
+const server = http2.createSecureServer({
+  key: fs.readFileSync('key.pem'),
+  cert: fs.readFileSync('cert.pem'),
+  allowHTTP1: true,                         // fall back for old clients
+});
+
+server.on('stream', (stream, headers) => {
+  if (headers[':path'] === '/') {
+    stream.respond({ ':status': 200, 'content-type': 'text/html' });
+    stream.end(`<!doctype html><script>
+      addEventListener('load', () => console.log(performance.getEntriesByType('navigation')[0].nextHopProtocol));  // "h2"
+    </script>${Array.from({ length: 60 }, (_, i) => `<img src="/img/${i}.png">`).join('')}`);
+    return;
+  }
+  stream.respond({ ':status': 200, 'content-type': 'image/png' });
+  stream.end(fs.readFileSync('pixel.png'));
+});
+
+server.listen(8443, () => console.log('https://localhost:8443'));
+:::
+
+::: code javascript Simulating requests over 6 connections vs one multiplexed connection (runnable)
+function http1Time(requests, serverMs, connections = 6) {
+  const free = Array(connections).fill(0);                 // when each connection is free
+  for (let i = 0; i < requests; i++) {
+    free.sort((a, b) => a - b);
+    free[0] += serverMs;                                    // next request waits for a free connection
+  }
+  return Math.max(...free);
+}
+const http2Time = (requests, serverMs) => serverMs;         // all streams in flight together (ignoring bandwidth)
+const h1 = http1Time(60, 40), h2 = http2Time(60, 40);
+console.log({ http1: h1, http2: h2 });
+console.log('HTTP/1.1: 60 requests / 6 connections = 10 rounds of 40 ms (measured 430 ms)', h1 === 400 ? '✅' : '❌ FAIL');
+console.log('HTTP/2: one round (measured 58 ms)', h2 === 40 ? '✅' : '❌ FAIL');
+:::
+
+::: warning ⚠️ Common mistakes
+- Domain sharding and image sprites "for performance" on HTTP/2.
+- Saying HTTP/2 needs no bundling at all (thousands of tiny modules still cost per-request overhead).
+- Confusing HTTP/2 server push (deprecated, removed from Chrome) with preload.
+- Assuming HTTP/3 always wins (it shines on lossy/mobile networks; UDP can be blocked by some networks, so browsers fall back).
+:::
+
+::: understand
+- HTTP/2 multiplexes over one TCP connection; HTTP/3 moves to QUIC to remove TCP's head-of-line blocking.
+:::
+
+::: ask
+- *"Does our CDN serve HTTP/2 and HTTP/3?"* Check `nextHopProtocol` in the Network panel's Protocol column.
+:::
+
+::: important ⭐ Say this in the interview
+"HTTP/1.1 handles one request at a time per TCP connection, so browsers open about six connections per origin and many small files queue up. HTTP/2 multiplexes many streams over a single TLS connection with header compression; in my test, sixty images with a 40 millisecond server delay took 430 milliseconds over HTTP/1.1 and 58 over HTTP/2. HTTP/3 runs HTTP over QUIC on UDP, with TLS 1.3 built in, faster setup and no head-of-line blocking between streams when packets are lost, plus connection migration, which helps mobile users. So I avoid HTTP/1-era hacks like domain sharding and enable HTTP/2 and 3 at the CDN."
+:::
+
+::: links
+web.dev: Introduction to HTTP/2 | https://web.dev/articles/performance-http2
+MDN: Evolution of HTTP | https://developer.mozilla.org/en-US/docs/Web/HTTP/Evolution_of_HTTP
+Cloudflare: HTTP/3 explained | https://www.cloudflare.com/learning/performance/what-is-http3/
 :::
 
 === Cookies vs localStorage vs sessionStorage vs IndexedDB
@@ -1330,4 +1832,276 @@ async function chunked(budgetMs = 10) {
 web.dev: Web Vitals | https://web.dev/articles/vitals
 web.dev: Optimize INP | https://web.dev/articles/optimize-inp
 web.dev: Optimize LCP | https://web.dev/articles/optimize-lcp
+:::
+
+=== How exactly are FCP and LCP measured?
+@p 3
+@tags browser, web-vitals, fcp, lcp, performance
+@quick
+- **FCP**: time from navigation to the **first paint of any content** (text, image, non-white canvas/SVG). It doesn't wait for images, PDFs or other downloads.
+- **LCP**: the **largest image or text block in the viewport**; the browser emits a new candidate whenever a bigger element paints, and stops at the **first user input or scroll**.
+- Measured in Chrome: a page with an `<h1>` and a photo arriving at 800 ms → **FCP 16 ms, LCP = `<h1>` at 16 ms, then the photo at 816 ms**.
+- **Low-entropy** images (flat colours, placeholders) are **ignored** for LCP (measured: a flat one-colour SVG never became LCP). Offscreen, `opacity:0` and full-viewport background images don't count either.
+- Failures: a **slow** stylesheet delayed FCP to **612 ms**; a **404** stylesheet didn't (28 ms); a 404 or throwing `<script>` didn't stop later HTML from rendering.
+
+::: text 🧒 In simple words
+FCP is **when the first thing appears** on the empty canvas. LCP is **when the biggest thing appears**: the browser keeps a "largest so far" record and updates it while the page loads, then stops counting as soon as you start interacting.
+:::
+
+::: text 📖 Detailed answer
+### FCP
+- Starts at navigation start; ends at the first frame that paints DOM content (text, `<img>`, `<svg>`, non-white `<canvas>`).
+- Doesn't wait for other resources: a link to a PDF or an image below the fold doesn't matter.
+- If the first content **is** an image, FCP waits for that image to decode and paint.
+
+### LCP
+| Counts | Doesn't count |
+|---|---|
+| `<img>`, `<image>` in SVG, `<video>` poster/first frame | elements with `opacity: 0`, offscreen elements |
+| background images loaded via `url()` | full-viewport backgrounds and placeholders |
+| block-level text elements | **low-entropy images** (< 0.05 bits per pixel) |
+| | anything painted after the first input/scroll |
+Size = visible area in the viewport (an image's size is also capped by its intrinsic size).
+
+### Measured (Chrome 154, local server)
+| Page | FCP | LCP entries |
+|---|---|---|
+| `<h1>` + 600×340 photo (arrives at 800 ms, shown 900×500) | 16 ms | `H1` at 16 ms → `IMG` at 816 ms (204,000 px²) |
+| `<h1>` + flat one-colour SVG (900×500) | 24 ms | only `H1` (image ignored: low entropy) |
+| stylesheet takes 600 ms | 612 ms | |
+| stylesheet 404 | 28 ms (unstyled) | |
+| `<script src>` 404 between two elements | 24 ms; HTML after it rendered | |
+| inline script throws | 28 ms; HTML after it rendered | |
+
+### Field vs lab
+In the field (`web-vitals` library, CrUX), LCP is reported per page load at the 75th percentile; `onLCP` reports the final candidate when the page is hidden or the user interacts.
+:::
+
+::: diagram How LCP is decided
+flowchart TD
+  P["element painted in the viewport"] --> E{"eligible? (not opacity 0, not low entropy, not full-viewport background)"}
+  E -->|"no"| X["ignored"]
+  E -->|"yes"| B{"bigger than the current candidate?"}
+  B -->|"yes"| N["new LCP entry (time = its render time)"]
+  B -->|"no"| X
+  I["first click, key press or scroll"] --> F["stop: last candidate is final LCP"]
+:::
+
+::: image How FCP and LCP are measured (Chrome measurements)
+/images/javascript/fcp-lcp.svg
+:::
+
+::: chart bar Measured in Chrome: first contentful paint in different failure cases (ms)
+Page,FCP (ms)
+normal stylesheet,20
+stylesheet 404,28
+script 404,24
+script throws,28
+stylesheet takes 600 ms,612
+:::
+
+::: text 🪜 Step by step
+The `<h1>` + slow photo page:
+1. HTML arrives; the `<h1>` is laid out and painted in the first frame → **FCP = 16 ms** and the first LCP entry (`H1`, 4,071 px²).
+2. The `<img>` has `width`/`height`, so its space is reserved (no layout shift) while it downloads.
+3. At ~800 ms the photo arrives, decodes and paints → a new LCP entry (`IMG`, 204,000 px²) at **816 ms**.
+4. No bigger element appears; when the user scrolls, LCP stops: final LCP = 816 ms.
+5. To improve it: preload the hero with `fetchpriority="high"`, serve it faster (CDN, AVIF), don't lazy-load it.
+:::
+
+::: code javascript Measuring FCP and LCP in the page (PerformanceObserver)
+// paste in DevTools console or ship to your analytics
+new PerformanceObserver((list) => {
+  for (const entry of list.getEntries()) {
+    if (entry.name === 'first-contentful-paint') console.log('FCP', Math.round(entry.startTime), 'ms');
+  }
+}).observe({ type: 'paint', buffered: true });
+
+new PerformanceObserver((list) => {
+  for (const entry of list.getEntries()) {
+    console.log('LCP candidate', Math.round(entry.startTime), 'ms', entry.element, `${entry.size} px²`, entry.url || '(text)');
+  }
+}).observe({ type: 'largest-contentful-paint', buffered: true });
+
+// In production prefer the web-vitals library (handles bfcache, prerender, visibility):
+// import { onFCP, onLCP, onINP, onCLS } from 'web-vitals';
+// onLCP(({ value, attribution }) => sendToAnalytics({ name: 'LCP', value, element: attribution.target }));
+document.addEventListener('click', () => console.log('after this input, LCP stops updating'), { once: true });
+:::
+
+::: code javascript The LCP candidate algorithm (runnable)
+function lcpEntries(paints, firstInputAt = Infinity) {
+  const entries = [];
+  let largest = 0;
+  for (const p of paints.sort((a, b) => a.at - b.at)) {
+    if (p.at >= firstInputAt) break;                       // stops at the first input or scroll
+    const eligible = !p.hidden && !(p.kind === 'image' && p.bitsPerPixel < 0.05);
+    if (eligible && p.size > largest) { largest = p.size; entries.push(`${p.name}@${p.at}`); }
+  }
+  return entries;
+}
+const page = [
+  { name: 'H1', kind: 'text', size: 4071, at: 16 },
+  { name: 'flat-image', kind: 'image', size: 450000, at: 400, bitsPerPixel: 0.01 },   // low entropy: ignored
+  { name: 'photo', kind: 'image', size: 204000, at: 816, bitsPerPixel: 2.9 },
+];
+console.log(lcpEntries(page).join(' → '));
+console.log('text first, then the photo; the flat image is ignored', lcpEntries(page).join() === 'H1@16,photo@816' ? '✅' : '❌ FAIL');
+console.log('a scroll at 500 ms freezes LCP at the heading', lcpEntries(page, 500).join() === 'H1@16' ? '✅' : '❌ FAIL');
+:::
+
+::: warning ⚠️ Common mistakes
+- Thinking FCP waits for all images or downloads.
+- Optimising a placeholder or background that isn't the real LCP element.
+- Lazy-loading the hero image (LCP waits for scroll-time loading logic).
+- Assuming a failed stylesheet blocks rendering forever (a slow one blocks; a failed one releases).
+- Reading LCP from a single Lighthouse run instead of field data.
+:::
+
+::: understand
+- FCP = first pixels of content; LCP = the largest eligible element, updated until interaction.
+:::
+
+::: ask
+- *"Which element is LCP on our key pages, and what delays it?"* DevTools' Performance panel shows it.
+:::
+
+::: important ⭐ Say this in the interview
+"FCP is the time until the first text or image content is painted; it doesn't wait for other images or downloads. LCP is the render time of the largest eligible image or text block in the viewport: the browser emits a new candidate whenever a bigger element paints and stops at the first input or scroll. Low-entropy placeholders, invisible and offscreen elements don't count. In a measurement, a heading painted at 16 milliseconds was both FCP and the first LCP candidate, and the hero photo replaced it at 816. A slow stylesheet pushed FCP to over 600 milliseconds, while a missing stylesheet or a failing script didn't block painting."
+:::
+
+::: links
+web.dev: First Contentful Paint | https://web.dev/articles/fcp
+web.dev: Largest Contentful Paint | https://web.dev/articles/lcp
+web-vitals library | https://github.com/GoogleChrome/web-vitals
+:::
+
+=== How do you debug rendering performance with Chrome DevTools?
+@p 2
+@tags browser, devtools, performance, debugging
+@quick
+- **Performance panel**: record an interaction/load → flame chart of the main thread: long tasks (red corner), **Layout** (purple), **Paint** (green), frames, LCP/INP/CLS markers, network waterfall.
+- **Rendering tab** (⋮ → More tools): **Paint flashing** (green = repainted areas), **Layout Shift Regions**, **Frame Rendering Stats**, **Layer borders**.
+- **Layers panel**: 3D view of compositor layers, why each was created and its memory.
+- **`chrome://gpu`**: whether hardware acceleration and GPU rasterization are on (and problems).
+- In code: `PerformanceObserver` for `long-animation-frame`, `largest-contentful-paint`, `layout-shift`, `event` (INP), or the `web-vitals` library; CDP `Performance.getMetrics` gives counters like `LayoutCount` (that's how 62 vs 1 layouts were measured here).
+
+::: text 🧒 In simple words
+DevTools is the **dashboard camera and engine diagnostics** for your page: the Performance recording replays exactly what the engine did frame by frame, paint flashing **lights up** whatever had to be redrawn, and the Layers view shows the stack of transparent sheets the GPU is juggling.
+:::
+
+::: text 📖 Detailed answer
+### A debugging workflow
+1. Reproduce in an incognito window (no extensions), with CPU throttling (4× or 6×) to mimic mid-range phones.
+2. Performance panel → Record → do the slow action → Stop.
+3. Look for: **long tasks** (> 50 ms, red corner) in the Main track, repeated **Layout/Recalculate Style** inside loops (forced reflow warnings), big **Paint** areas, dropped frames in the Frames track.
+4. Click an event → Bottom-Up/Call Tree to find the function responsible.
+5. Fix (split work, batch reads/writes, transform instead of left, virtualise lists), record again, compare.
+
+### Tools and what they answer
+| Tool | Question it answers |
+|---|---|
+| Performance panel | what ran on the main thread, and when? |
+| Performance → Insights / LCP & INP breakdown | which element is LCP; which handler made INP slow |
+| Rendering → Paint flashing | what is being repainted while I scroll/animate? |
+| Rendering → Layout Shift Regions | what moved (CLS)? |
+| Layers panel | how many layers, why, how much memory? |
+| `chrome://gpu` | is the GPU actually used? |
+| Lighthouse | lab scores + diagnostics |
+| `PerformanceObserver` / `web-vitals` | what do real users experience? |
+
+### Measuring from code (as done for this page)
+- `new PerformanceObserver(cb).observe({ type: 'long-animation-frame', buffered: true })` → a 120 ms task appeared as a 135.6 ms entry with script attribution.
+- CDP `Performance.getMetrics` (Puppeteer/Playwright) → `LayoutCount`, `RecalcStyleCount`, `ScriptDuration` for automated performance tests.
+:::
+
+::: diagram Debugging loop
+flowchart LR
+  R["reproduce (throttled CPU, incognito)"] --> REC["record in the Performance panel"]
+  REC --> F["find: long task, layout, paint or dropped frames"]
+  F --> C["click through to the function (Bottom-Up)"]
+  C --> X["fix"]
+  X --> REC2["record again and compare"]
+:::
+
+::: image Debugging rendering performance in Chrome DevTools
+/images/javascript/devtools-perf.svg
+:::
+
+::: chart bar Measured with CDP Performance.getMetrics: layouts during a 1 s animation
+Animated property,LayoutCount
+left,62
+transform,1
+:::
+
+::: text 🪜 Step by step
+Finding why scrolling a list janks:
+1. Rendering → enable **Paint flashing**: the whole list flashes green on every scroll → repainting a lot.
+2. Performance recording while scrolling: each frame shows a long purple **Layout** block called from a scroll handler.
+3. Bottom-Up: `onScroll` reads `el.offsetTop` for every row after setting styles → forced synchronous layout (thrashing).
+4. Fix: read positions once with `IntersectionObserver`, or batch reads before writes; use `transform` for the sticky header.
+5. New recording: no layouts during scroll, green flashing only on the header, frames on time.
+:::
+
+::: code javascript Collecting rendering metrics from code (long animation frames, CLS, layout counts)
+// 1) Long Animation Frames: which frames were slow and which scripts caused them
+new PerformanceObserver((list) => {
+  for (const frame of list.getEntries()) {
+    if (frame.duration < 50) continue;
+    const scripts = frame.scripts.map((s) => `${s.sourceFunctionName || s.invoker} (${Math.round(s.duration)} ms)`);
+    console.log('long frame', Math.round(frame.duration), 'ms', scripts);
+  }
+}).observe({ type: 'long-animation-frame', buffered: true });
+
+// 2) Layout shifts not caused by user input (CLS)
+let cls = 0;
+new PerformanceObserver((list) => {
+  for (const shift of list.getEntries()) if (!shift.hadRecentInput) cls += shift.value;
+  console.log('CLS so far', cls.toFixed(3));
+}).observe({ type: 'layout-shift', buffered: true });
+
+// 3) Automated check with Playwright + CDP (in a test file):
+// const cdp = await page.context().newCDPSession(page);
+// await cdp.send('Performance.enable');
+// const metrics = (await cdp.send('Performance.getMetrics')).metrics;   // LayoutCount, RecalcStyleCount, ...
+document.title = 'measuring';
+:::
+
+::: code javascript Spotting forced reflows in a trace-like event list (runnable)
+// A simplified main-thread trace: a scroll handler alternating style writes and layout reads.
+const trace = [
+  { t: 0, type: 'Event', name: 'scroll' },
+  ...Array.from({ length: 5 }, (_, i) => [{ t: i * 3 + 1, type: 'StyleWrite' }, { t: i * 3 + 2, type: 'Layout', forced: true, ms: 2.4 }]).flat(),
+  { t: 20, type: 'Paint', ms: 3 },
+];
+const forced = trace.filter((e) => e.type === 'Layout' && e.forced);
+const layoutMs = forced.reduce((s, e) => s + e.ms, 0);
+console.log(`forced synchronous layouts: ${forced.length}, time: ${layoutMs.toFixed(1)} ms`);
+console.log('DevTools would flag these as "Forced reflow"', forced.length === 5 ? '✅' : '❌ FAIL');
+console.log('batched reads/writes would need 1 layout instead of 5', Math.ceil(forced.length / 5) === 1 ? '✅' : '❌ FAIL');
+:::
+
+::: warning ⚠️ Common mistakes
+- Profiling on a fast laptop without CPU throttling.
+- Profiling with browser extensions enabled (they add their own work).
+- Optimising by guessing instead of recording before and after.
+- Looking only at Lighthouse scores instead of the actual main-thread activity.
+:::
+
+::: understand
+- Record, find the expensive work, attribute it to code, fix, record again.
+:::
+
+::: ask
+- *"Is the problem loading (LCP), responsiveness (INP) or smoothness (frames)?"* Each has its own DevTools view.
+:::
+
+::: important ⭐ Say this in the interview
+"I reproduce the problem with CPU throttling in an incognito window, record it in the Performance panel and read the main-thread flame chart: long tasks, purple layout blocks with forced reflow warnings, green paint blocks and dropped frames, then use Bottom-Up to find the function. The Rendering tab's paint flashing and layout shift regions show what repaints or moves, the Layers panel shows compositor layers and memory, and chrome://gpu confirms GPU acceleration. For real users I collect long animation frames, LCP, INP and CLS with PerformanceObserver or the web-vitals library, and for automated checks I read counters like LayoutCount through the DevTools protocol."
+:::
+
+::: links
+Chrome DevTools: Analyze runtime performance | https://developer.chrome.com/docs/devtools/performance
+Chrome DevTools: Rendering tab | https://developer.chrome.com/docs/devtools/rendering
+Chrome DevTools: Layers panel | https://developer.chrome.com/docs/devtools/layers
 :::

@@ -9,6 +9,7 @@
 @quick
 - A **generic** is a **type parameter**: `function first<T>(items: T[]): T | undefined`. `T` is decided per call (usually inferred).
 - Generics keep the **link between input and output** types; `any` loses it.
+- `<T>` **declares** the type parameter, `value: T` and `: T` **use** it; at a call like `first(['a'])` TS infers `T = string`.
 - **Constraints**: `<T extends { id: string }>` requires a shape; `<K extends keyof T>` limits to T's keys.
 - **Defaults**: `<T = unknown>`. Generic types: `type ApiResponse<T> = { data: T; error?: string }`.
 - Everywhere in practice: `Array<T>`, `Promise<T>`, `useState<T>`, `Map<K, V>`, API clients, reusable components.
@@ -648,6 +649,303 @@ export function UserForm() {
 ::: links
 React: Using TypeScript | https://react.dev/learn/typescript
 React TypeScript Cheatsheet | https://react-typescript-cheatsheet.netlify.app/
+:::
+
+=== How do you build a generic React component? (DataTable<T>)
+@p 2
+@tags typescript, react, generics, components
+@quick
+- A **generic component** keeps the logic the same while the **data type changes**: `function DataTable<T>({ rows, columns }: Props<T>)`.
+- `T` is **inferred from props** (`rows={users}` → `T = User`), so column keys (`keyof T`), render callbacks and events get the exact row type.
+- Add constraints when the component needs something: `<T extends { id: string | number }>` for stable React keys.
+- In `.tsx` arrow functions write `<T,>(props: Props<T>) => …` so the parser doesn't read `<T>` as a JSX tag.
+- `<T>` **declares** a type parameter; `: T` **uses** it. Without `<T>`, `T` would be an unknown name.
+
+::: text 🧒 In simple words
+A generic component is a **cake mould with a label slot**: same mould for chocolate or vanilla, and the label automatically says which flavour went in, so whoever slices it knows exactly what they're getting.
+:::
+
+::: text 📖 Detailed answer
+### Without generics
+`rows: any[]` loses all checking (typos in column keys compile), or you write one table per entity.
+
+### With generics
+`type Column<T> = { key: keyof T; header: string; render?: (row: T) => ReactNode }`  
+`function DataTable<T extends { id: string | number }>({ rows, columns, onRowClick }: { rows: T[]; columns: Column<T>[]; onRowClick?: (row: T) => void })`
+- `rows={users}` → `T = User`.
+- `columns={[{ key: 'mail' }]}` → error: `'mail'` is not assignable to `keyof User`.
+- `onRowClick={(u) => u.email}` → `u` is `User`.
+
+### `<T>` vs `: T`
+| Syntax | Meaning |
+|---|---|
+| `function identity<T>(value: T): T` | `<T>` declares the parameter; `value: T` and `: T` use it |
+| `const n = identity(5)` | TS infers `T = number` from the argument |
+| `identity<string>('a')` | explicit type argument |
+
+### Common generic UI pieces
+Select/Combobox (`options: T[]`, `getLabel(o: T)`), List with `renderItem(item: T)`, Table, Form field helpers (`name: keyof Values`).
+:::
+
+::: diagram Inference through props
+flowchart LR
+  P["rows={users}"] --> I["infer T = User"]
+  I --> K["columns key: keyof User"]
+  I --> R["render(row: User)"]
+  I --> C["onRowClick(row: User)"]
+  K --> E["'mail' → compile error"]
+:::
+
+::: image Generic React components
+/images/typescript/generic-component.svg
+:::
+
+::: text 🪜 Step by step
+Rendering `<DataTable rows={orders} columns={[{ key: 'total', header: 'Total', render: (o) => o.total.toFixed(2) }]} />`:
+1. TS sees `rows: T[]` receiving `Order[]` → `T = Order`.
+2. `Column<Order>` makes `key` accept only `'id' | 'customer' | 'total'`.
+3. `render: (o) => …` → `o` is `Order`, so `o.total.toFixed(2)` type-checks.
+4. The constraint `T extends { id: string | number }` lets the component use `row.id` as the React key.
+5. Reusing `<DataTable rows={users} … />` re-infers `T = User`.
+:::
+
+::: code tsx DataTable<T>: a generic, type-safe table (checked with tsc)
+import type { ReactNode } from 'react';
+
+type Column<T> = { key: keyof T & string; header: string; render?: (row: T) => ReactNode };
+type DataTableProps<T> = { rows: T[]; columns: Column<T>[]; onRowClick?: (row: T) => void; empty?: ReactNode };
+
+export function DataTable<T extends { id: string | number }>({ rows, columns, onRowClick, empty = 'No data' }: DataTableProps<T>) {
+  if (rows.length === 0) return <p>{empty}</p>;
+  return (
+    <table>
+      <thead><tr>{columns.map((c) => <th key={c.key}>{c.header}</th>)}</tr></thead>
+      <tbody>
+        {rows.map((row) => (
+          <tr key={row.id} onClick={() => onRowClick?.(row)}>
+            {columns.map((c) => <td key={c.key}>{c.render ? c.render(row) : String(row[c.key])}</td>)}
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
+}
+
+type User = { id: number; name: string; email: string };
+type Order = { id: string; customer: string; total: number };
+const users: User[] = [{ id: 1, name: 'Asha', email: 'asha@x.com' }];
+const orders: Order[] = [{ id: 'o1', customer: 'Asha', total: 499.5 }];
+
+export function Screens() {
+  return (
+    <>
+      <DataTable rows={users} columns={[{ key: 'name', header: 'Name' }, { key: 'email', header: 'Email' }]} onRowClick={(u) => console.log(u.email)} />
+      <DataTable rows={orders} columns={[{ key: 'total', header: 'Total', render: (o) => `₹${o.total.toFixed(2)}` }]} />
+      {/* @ts-expect-error: 'mail' is not a key of User */}
+      <DataTable rows={users} columns={[{ key: 'mail', header: 'Mail' }]} />
+    </>
+  );
+}
+
+// arrow-function generic in a .tsx file: the trailing comma avoids JSX parsing
+export const List = <T,>({ items, render }: { items: T[]; render: (item: T) => ReactNode }) => <ul>{items.map((i, n) => <li key={n}>{render(i)}</li>)}</ul>;
+:::
+
+::: code javascript The same table logic without types (runnable)
+function renderTable(rows, columns) {
+  if (rows.length === 0) return 'No data';
+  const header = columns.map((c) => c.header).join(' | ');
+  const lines = rows.map((row) => columns.map((c) => (c.render ? c.render(row) : String(row[c.key]))).join(' | '));
+  return [header, ...lines].join('\n');
+}
+const users = [{ id: 1, name: 'Asha', email: 'asha@x.com' }];
+const out = renderTable(users, [{ key: 'name', header: 'Name' }, { key: 'mail', header: 'Mail' }]);   // typo!
+console.log(out);
+console.log("without types, the 'mail' typo silently renders undefined", out.includes('undefined') ? '✅ (TS catches this at compile time)' : '❌ FAIL');
+:::
+
+::: warning ⚠️ Common mistakes
+- `rows: any[]` (no checking of keys or callbacks).
+- `<T>` on an arrow function in `.tsx` without the trailing comma (parsed as JSX).
+- Unconstrained `T` while using `row.id` (error; add `extends { id: … }`).
+- Explicitly passing type arguments everywhere instead of letting inference work.
+:::
+
+::: understand
+- Generic components = one implementation, exact types for every use.
+:::
+
+::: ask
+- *"Which properties does the component itself rely on?"* Those become the constraint.
+:::
+
+::: important ⭐ Say this in the interview
+"A generic component keeps the same logic while the data type varies, for example DataTable<T> with rows of T and columns whose key is keyof T. TypeScript infers T from the rows prop, so column keys, render callbacks and row click handlers all get the exact row type and typos are compile errors. I add constraints for what the component needs, like an id for React keys, and in .tsx arrow functions I write <T,> so it isn't parsed as JSX. The angle-bracket T declares the type parameter, and the other mentions just use it."
+:::
+
+::: links
+React TypeScript Cheatsheet: Generic components | https://react-typescript-cheatsheet.netlify.app/docs/advanced/patterns_by_usecase/#generic-components
+Handbook: Generics | https://www.typescriptlang.org/docs/handbook/2/generics.html
+:::
+
+=== How do you type API calls end to end? (typed fetch, typed errors, Zod validation)
+@p 3
+@tags typescript, api, fetch, zod, validation, errors
+@quick
+- TypeScript **can't verify runtime data**: `res.json() as User` compiles even if the API returns `{ id: "1", name: null }`.
+- Treat responses as **`unknown`** and validate with a schema (**Zod**, Valibot): `const user = User.parse(await res.json())`.
+- **One source of truth**: `const User = z.object({…}); type User = z.infer<typeof User>`.
+- Typed errors: a custom `ApiError` class (`status`, `code`, `details`) thrown on `!res.ok`, or a **`Result<T>` union** (`{ ok: true; data } | { ok: false; error }`) that forces callers to handle failure.
+- Generic wrapper: `apiGet<T>(url, schema: z.ZodType<T>): Promise<T>` keeps call sites short and safe.
+
+::: text 🧒 In simple words
+A type annotation on API data is like **trusting the label on a parcel**. Zod is **opening the parcel and checking** the contents match the label before you use them. If they don't match, you find out right there, with a list of what's wrong, instead of the app breaking somewhere later.
+:::
+
+::: text 📖 Detailed answer
+### Why types alone aren't enough
+`const user = (await res.json()) as User   // no check: TypeScript just trusts you`
+If the backend changes `id` to a string, the code compiles and crashes later (blank page). The fix is **runtime validation at the boundary**.
+
+### Zod in three lines
+- `const User = z.object({ id: z.number(), name: z.string(), email: z.email() })`
+- `type User = z.infer<typeof User>`
+- `User.parse(data)` (throws `ZodError`) or `User.safeParse(data)` (`{ success, data | error }`).
+
+### Typing errors
+| Approach | How | Good for |
+|---|---|---|
+| `ApiError extends Error` | `throw new ApiError(res.status, body.code, body.message)` | React Query / error boundaries |
+| `Result<T>` union | `{ ok: true; data: T } \| { ok: false; error: ApiError }` | forcing explicit handling |
+| Error schema | `ErrorBody = z.object({ code: z.string(), message: z.string(), fields: z.record(...).optional() })` | form field errors |
+
+### Generic API helper
+`apiGet<T>(path, schema: z.ZodType<T>)`: one place handles base URL, auth header, `!res.ok`, JSON parsing and validation; each call returns a validated `T`.
+
+### Generic response envelopes
+`type ApiResponse<T> = { data: T; status: number; message: string }` (and `z.object({ data: schema, … })` at run time) for APIs that wrap payloads.
+:::
+
+::: diagram A validated API call
+flowchart TD
+  F["fetch(url)"] --> OK{"res.ok?"}
+  OK -->|"no"| E["parse error body, throw ApiError(status, code)"]
+  OK -->|"yes"| J["await res.json(): unknown"]
+  J --> V{"Schema.safeParse(data)"}
+  V -->|"success"| T["typed, validated data"]
+  V -->|"failure"| Z["throw: field-level ZodError (contract broken)"]
+:::
+
+::: image Typing API calls end to end
+/images/typescript/typed-api.svg
+:::
+
+::: text 🪜 Step by step
+`const user = await apiGet('/api/users/1', User)` when the backend returns `{ "id": "1", "name": "Asha" }`:
+1. `fetch` succeeds (200) → `res.ok` is true.
+2. `await res.json()` → `unknown`.
+3. `User.parse(data)` checks `id`: expected number, got string → throws `ZodError` with the path `['id']`.
+4. The error is logged/reported with the exact field, and the UI shows an error state instead of crashing later.
+5. With `as User`, the bug would have surfaced elsewhere (`user.id.toFixed` is not a function) or not at all.
+:::
+
+::: code typescript api.ts: typed fetch with ApiError, Result and Zod (checked with tsc, ran with Node)
+import { z } from 'zod';
+
+export const User = z.object({ id: z.number(), name: z.string(), email: z.email() });
+export type User = z.infer<typeof User>;
+
+const ErrorBody = z.object({ code: z.string(), message: z.string(), fields: z.record(z.string(), z.string()).optional() });
+
+export class ApiError extends Error {
+  status: number;
+  code: string;
+  fields?: Record<string, string>;
+  // plain fields instead of `constructor(public status: number)`: parameter properties are not
+  // erasable syntax, so Node's built-in type stripping refuses them (we hit that error running this file)
+  constructor(status: number, code: string, message: string, fields?: Record<string, string>) {
+    super(message);
+    this.name = 'ApiError';
+    this.status = status;
+    this.code = code;
+    this.fields = fields;
+  }
+}
+
+export async function apiGet<T>(url: string, schema: z.ZodType<T>, init?: RequestInit): Promise<T> {
+  const res = await fetch(url, init);
+  if (!res.ok) {
+    const body = ErrorBody.safeParse(await res.json().catch(() => null));
+    throw body.success
+      ? new ApiError(res.status, body.data.code, body.data.message, body.data.fields)
+      : new ApiError(res.status, 'UNKNOWN', `Request failed with ${res.status}`);
+  }
+  const data: unknown = await res.json();
+  return schema.parse(data);                       // throws a ZodError listing wrong fields
+}
+
+export type Result<T> = { ok: true; data: T } | { ok: false; error: ApiError | z.ZodError };
+export async function safeGet<T>(url: string, schema: z.ZodType<T>): Promise<Result<T>> {
+  try { return { ok: true, data: await apiGet(url, schema) }; }
+  catch (error) {
+    if (error instanceof ApiError || error instanceof z.ZodError) return { ok: false, error };
+    throw error;                                   // unexpected: let it surface
+  }
+}
+
+// usage: the caller must handle both branches
+export async function loadUserName(id: number): Promise<string> {
+  const result = await safeGet(`https://api.example.com/users/${id}`, User);
+  if (!result.ok) return result.error instanceof ApiError ? `Error ${result.error.status}` : 'Bad data from server';
+  return result.data.name;                         // typed and validated
+}
+:::
+
+::: code javascript Validation catches what a type cast would miss (runnable)
+// A miniature schema validator, the idea behind Zod.
+const z = {
+  number: () => (v, path) => (typeof v === 'number' ? [] : [`${path}: expected number, got ${typeof v}`]),
+  string: () => (v, path) => (typeof v === 'string' ? [] : [`${path}: expected string, got ${v === null ? 'null' : typeof v}`]),
+  object: (shape) => (v, path = '') => (typeof v !== 'object' || v === null ? [`${path || 'value'}: expected object`] : Object.entries(shape).flatMap(([k, check]) => check(v[k], path ? `${path}.${k}` : k))),
+};
+const User = z.object({ id: z.number(), name: z.string() });
+const parse = (schema, data) => { const errors = schema(data); if (errors.length) throw new TypeError(errors.join('; ')); return data; };
+
+const good = JSON.parse('{"id":1,"name":"Asha"}');
+const bad = JSON.parse('{"id":"1","name":null}');
+console.log('valid data passes', parse(User, good).name === 'Asha' ? '✅' : '❌ FAIL');
+let message = '';
+try { parse(User, bad); } catch (e) { message = e.message; }
+console.log(message);
+console.log('invalid data is rejected with field paths', message === 'id: expected number, got string; name: expected string, got null' ? '✅' : '❌ FAIL');
+const casted = bad;                                 // what `as User` does: nothing
+console.log('a cast lets it through and fails later', typeof casted.id.toFixed !== 'function' ? '✅ (crash waiting to happen)' : '❌ FAIL');
+:::
+
+::: warning ⚠️ Common mistakes
+- `res.json() as User` / `fetch<T>` wrappers that only cast.
+- Ignoring `res.ok` (fetch doesn't throw on 4xx/5xx).
+- Typing `catch (e)` errors as your `ApiError` without `instanceof`.
+- Duplicating types and validation logic (derive the type with `z.infer`).
+- Validating huge responses on every render (validate once in the data layer).
+:::
+
+::: understand
+- Static types describe; runtime schemas verify. Use both at the network boundary.
+:::
+
+::: ask
+- *"Is there an OpenAPI/GraphQL schema we can generate types and validators from?"*
+:::
+
+::: important ⭐ Say this in the interview
+"TypeScript can't guarantee that runtime data matches a type, so casting res.json() as User is just trust. I type API calls with a small generic helper: it checks res.ok and throws a typed ApiError with status and code parsed from the error body, treats the JSON as unknown, and validates it with a Zod schema whose inferred type is the static type, so there's one source of truth. For call sites that must handle failure explicitly I return a discriminated Result type. That way a backend contract change shows up immediately as a clear validation error instead of a crash somewhere else."
+:::
+
+::: links
+Zod | https://zod.dev/
+MDN: fetch and response.ok | https://developer.mozilla.org/en-US/docs/Web/API/Response/ok
+TanStack Query: TypeScript | https://tanstack.com/query/latest/docs/framework/react/typescript
 :::
 
 === Type assertions vs satisfies vs annotations (and .d.ts files)

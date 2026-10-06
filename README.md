@@ -1,9 +1,10 @@
 # 🎯 Full-Stack Interview Prep
 
-A self-hosted study app for **JavaScript, React, Node.js, Express, REST/Auth, MongoDB, Mongoose, AWS, Full-Stack integration, LLD (frontend, backend and full-stack) and DSA**. It ships with **333 questions** in 41 sections and 43 glossary terms, ordered by interview importance and arranged in learning order (what Node.js is comes before the event loop). That includes:
+A self-hosted study app for **JavaScript, React, Node.js, Express, REST/Auth, MongoDB, Mongoose, AWS, Full-Stack integration, LLD (frontend, backend and full-stack) and DSA**. It ships with **350 questions** in 42 sections and 47 glossary terms, ordered by interview importance and arranged in learning order (what Node.js is comes before the event loop). That includes:
 
-- **JavaScript** (49 questions): basics, functions and scope, objects and prototypes, async and the event loop, browser and DOM, array and function polyfills, and design patterns.
-- **TypeScript** (15 questions): fundamentals, then generics, utility types, conditional types and typing React. Every example compiles with `tsc --strict`.
+- **JavaScript** (55 questions): basics, functions and scope, objects and prototypes, async and the event loop, browser and DOM (rendering pipeline, rasterization and compositing, frames, progressive rendering, FCP/LCP measurement, DevTools, HTTP/2 and HTTP/3), array and function polyfills, and design patterns.
+- **Web Security** (7 questions): XSS and React, sanitizing HTML, CSP, where to keep tokens, CSRF, clickjacking and secrets in frontend code. Every defence was tested in Chrome.
+- **TypeScript** (19 questions): fundamentals (including how the compiler works and union vs intersection), then generics, utility types, conditional types, typing React, generic components and type-safe API calls with Zod. Every example compiles with `tsc --strict`.
 - **React** (36 questions): fundamentals, hooks, performance, Suspense and concurrent rendering, and React 19.
 - **Next.js 16** (10 questions): App Router, Server vs Client Components, rendering strategies, caching with `use cache`, Server Actions, Route Handlers and Proxy. Verified against a real Next.js 16 app.
 - **Testing** (16 questions): fundamentals (unit, integration, E2E, mocks, TDD, coverage), React Testing Library with MSW, Playwright end-to-end tests, and Node.js API tests with Supertest. Every test shown was actually run.

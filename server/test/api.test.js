@@ -49,7 +49,8 @@ after(async () => {
 test('fresh install seeds the tree in the right shape', async () => {
   const roots = childrenOf(tree, null).map((n) => n.title);
   assert.deepEqual(roots, ['Frontend', 'Backend', 'System Design', 'DevOps', 'Testing', 'DSA']);
-  assert.equal(tree.pages.length, 333);
+  assert.equal(tree.pages.length, 350);
+  assert.equal(childrenOf(tree, node('frontend')._id).map((n) => n.title).join(' | '), 'JavaScript | TypeScript | React | Next.js | Web Security (Browser) | HTML & CSS');
   assert.deepEqual(childrenOf(tree, node('frontend/typescript')._id).map((n) => n.title), ['TypeScript Fundamentals', 'TypeScript Advanced & React']);
   assert.deepEqual(childrenOf(tree, node('frontend/nextjs')._id).map((n) => n.title), ['Next.js Fundamentals', 'Next.js Data, Caching & Server']);
   assert.deepEqual(childrenOf(tree, node('testing')._id).map((n) => n.title), ['Testing Fundamentals', 'Frontend', 'Backend']);

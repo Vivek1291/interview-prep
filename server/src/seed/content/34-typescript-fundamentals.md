@@ -142,6 +142,146 @@ TypeScript for JavaScript programmers | https://www.typescriptlang.org/docs/hand
 Node.js: running TypeScript natively | https://nodejs.org/api/typescript.html
 :::
 
+=== How does the TypeScript compiler work? (scanner, parser, AST, checker, emitter)
+@p 2
+@tags typescript, compiler, ast, tooling
+@quick
+- `tsc` pipeline: **scanner** (text → tokens) → **parser** (tokens → **AST**) → **binder** (symbols, scopes) → **checker** (types, errors) → **emitter** (JS + `.d.ts` + source maps).
+- The **AST** (abstract syntax tree) is the code as a tree of nodes: `VariableDeclaration` → `Identifier`, type annotation, initializer…
+- Measured on 563 files: parse **0.12 s**, bind **0.06 s**, **check 0.38 s** (64% of the time), emit 0 s (`--noEmit`). Type-checking is the expensive part.
+- Emitting = removing type nodes (+ downleveling if `target` is old); that's why esbuild/swc/Node can **strip types without checking**, much faster.
+- TypeScript is a **superset** of JavaScript: every valid JS file is (syntactically) valid TS; types never change runtime behaviour.
+
+::: text 🧒 In simple words
+The compiler is a **translator and proofreader**. It first splits your sentences into words (tokens), draws a **grammar tree** of each sentence (AST), works out who each name refers to (binder), checks the meaning makes sense (checker), and finally writes the translation without the notes in the margin (types).
+:::
+
+::: text 📖 Detailed answer
+### The phases
+| Phase | Input → output | Example |
+|---|---|---|
+| Scanner | `const total: number = …` → tokens | `ConstKeyword`, `Identifier(total)`, `ColonToken`, `NumberKeyword` … |
+| Parser | tokens → AST | `VariableStatement` → `VariableDeclaration` → … |
+| Binder | AST → symbols and scopes | links `total` to its declaration |
+| Checker | AST + symbols → types + diagnostics | "Type 'string' is not assignable to type 'number'" |
+| Emitter | AST → `.js`, `.d.ts`, `.map` | drops `: number` |
+
+### Real AST (from `ts.createSourceFile`)
+For `const total: number = items.reduce((s, i) => s + i.price, 0);`:
+`SourceFile → VariableStatement → VariableDeclarationList → VariableDeclaration → Identifier(total), NumberKeyword, CallExpression → PropertyAccessExpression(items.reduce), ArrowFunction(Parameter s, Parameter i, …)`.
+Emitted JS: `const total = items.reduce((s, i) => s + i.price, 0);` (the `NumberKeyword` node is gone).
+
+### Measured (`tsc --extendedDiagnostics`, 500 generated files + lib, M3 Pro)
+| Phase | Time |
+|---|---|
+| Parse | 0.12 s |
+| Bind | 0.06 s |
+| Check | 0.38 s |
+| Emit | 0 s (noEmit) |
+| Total | 0.59 s |
+
+### Why this matters
+- **Type-checking is the slow part**, so dev servers transpile with esbuild/swc and run `tsc --noEmit` separately (CI, editor).
+- `isolatedModules` exists because single-file transpilers can't see other files' types.
+- ASTs power the whole ecosystem: ESLint rules, Prettier, codemods, Babel plugins, the React Compiler.
+- The TypeScript team is porting the compiler to Go (TypeScript 7, "Corsa") for ~10× faster checking.
+:::
+
+::: diagram The tsc pipeline
+flowchart LR
+  T["source text"] --> S["scanner: tokens"]
+  S --> P["parser: AST"]
+  P --> B["binder: symbols and scopes"]
+  B --> C["checker: types and errors"]
+  P --> E["emitter: .js, .d.ts, .map"]
+  C -.->|"errors do not block emit unless noEmitOnError"| E
+:::
+
+::: image How the TypeScript compiler works (measured phases)
+/images/typescript/compiler.svg
+:::
+
+::: chart bar Measured: tsc phases on 563 files (seconds)
+Phase,Seconds
+Parse,0.12
+Bind,0.06
+Check,0.38
+Emit (noEmit),0
+:::
+
+::: text 🪜 Step by step
+What happens to `const n: number = 'five';`:
+1. Scanner: `const`, `n`, `:`, `number`, `=`, `'five'`, `;`.
+2. Parser: a `VariableDeclaration` with name `n`, type `NumberKeyword`, initializer `StringLiteral`.
+3. Binder: creates a symbol `n` in the current scope.
+4. Checker: type of the initializer is `string`, declared type is `number` → error TS2322.
+5. Emitter (unless `noEmitOnError`): still writes `const n = 'five';`, because types don't change runtime code.
+:::
+
+::: code typescript Using the compiler API: print an AST and transpile (checked with tsc)
+import ts from 'typescript';
+
+const source = 'const total: number = items.reduce((s, i) => s + i.price, 0);';
+const file = ts.createSourceFile('example.ts', source, ts.ScriptTarget.ES2022, true);
+
+function printTree(node: ts.Node, depth = 0): string[] {
+  const label = ts.SyntaxKind[node.kind] + (ts.isIdentifier(node) ? ` (${node.text})` : '');
+  const lines = ['  '.repeat(depth) + label];
+  node.forEachChild((child) => { lines.push(...printTree(child, depth + 1)); });
+  return lines;
+}
+console.log(printTree(file).slice(0, 8).join('\n'));
+
+const js = ts.transpileModule(source, { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText;
+console.log(js.trim());   // const total = items.reduce((s, i) => s + i.price, 0);
+:::
+
+::: code javascript A tiny tokenizer: the first phase of every compiler (runnable)
+function tokenize(src) {
+  const rules = [['ws', /^\s+/], ['keyword', /^(const|let|number|string)\b/], ['ident', /^[A-Za-z_]\w*/], ['number', /^\d+/], ['string', /^'[^']*'/], ['punct', /^[:=;().,+]/]];
+  const tokens = [];
+  while (src.length) {
+    const [type, re] = rules.find(([, r]) => r.test(src)) ?? [];
+    if (!type) throw new SyntaxError(`Unexpected "${src[0]}"`);
+    const [text] = src.match(re);
+    if (type !== 'ws') tokens.push(`${type}:${text}`);
+    src = src.slice(text.length);
+  }
+  return tokens;
+}
+const tokens = tokenize("const n: number = 'five';");
+console.log(tokens.join('  '));
+console.log('scanner output', tokens.join(' ') === "keyword:const ident:n punct:: keyword:number punct:= string:'five' punct:;" ? '✅' : '❌ FAIL');
+// "Type stripping" = dropping the ": number" tokens
+const stripped = tokens.filter((t, i) => !(t === 'punct::' || (tokens[i - 1] === 'punct::' && t.startsWith('keyword')))).map((t) => t.split(/:(.*)/s)[1]).join(' ');
+console.log(stripped, stripped === "const n = 'five' ;" ? '✅' : '❌ FAIL');
+:::
+
+::: warning ⚠️ Common mistakes
+- Thinking types are checked at run time or change the emitted logic.
+- Expecting the bundler (esbuild/swc/Vite) to report type errors.
+- Saying TypeScript "is interpreted": it's compiled (transpiled) to JS, then the JS engine runs it.
+- Ignoring `noEmitOnError` when you need a failed type-check to block the build.
+:::
+
+::: understand
+- Parse → bind → check → emit; checking is the expensive step, emitting is mostly deletion.
+:::
+
+::: ask
+- *"Is type-checking part of the build or a separate CI step?"*
+:::
+
+::: important ⭐ Say this in the interview
+"The TypeScript compiler scans the source into tokens, parses them into an abstract syntax tree, binds names to symbols and scopes, type-checks the tree to produce diagnostics, and emits JavaScript, declaration files and source maps. Emitting is mostly removing type nodes, which is why tools like esbuild, swc or Node can strip types very quickly without checking, while tsc --noEmit does the actual checking. I measured the phases on about 560 files: parsing took 0.12 seconds, binding 0.06 and checking 0.38, so checking dominates. ASTs are also what ESLint, Prettier and codemods work on."
+:::
+
+::: links
+TypeScript compiler API | https://github.com/microsoft/TypeScript/wiki/Using-the-Compiler-API
+TypeScript AST viewer | https://ts-ast-viewer.com/
+TypeScript native port (Go) | https://devblogs.microsoft.com/typescript/typescript-native-port/
+:::
+
 === Basic types, type inference and annotations
 @p 3
 @tags typescript, types, inference
@@ -510,6 +650,143 @@ Handbook: Narrowing | https://www.typescriptlang.org/docs/handbook/2/narrowing.h
 Handbook: Discriminated unions | https://www.typescriptlang.org/docs/handbook/2/narrowing.html#discriminated-unions
 :::
 
+=== Union vs intersection types: why do some intersections become never?
+@p 2
+@tags typescript, unions, intersections, never, assignability
+@quick
+- **Union** `A | B`: a value is **either** A or B; you may only use what both have in common until you narrow.
+- **Intersection** `A & B`: a value is **both** A and B at once.
+- For **object types**, `&` behaves like a merge: `{ id: number } & { name: string }` needs both properties.
+- For **literal/primitive types** with no overlap, `&` is **`never`**: `('loading' | 'success') & ('Done' | 'Failed')` → `never`; `string & number` → `never`.
+- Assignability: `'a'` → `'a' | 'b'` ✅ (narrow to wide); `string | number` → `string` ❌ (the number part may not fit).
+
+::: text 🧒 In simple words
+Think of **two clubs**. A union is "member of the chess club **or** the football club": a big group. An intersection is "member of **both** clubs": only the overlap. If nobody is in both clubs, the intersection is an **empty room** (`never`).
+:::
+
+::: text 📖 Detailed answer
+### Sets of values
+| Type | Values it contains |
+|---|---|
+| `'loading' \| 'success' \| 'error'` | 3 strings |
+| `'Done' \| 'Failed'` | 2 strings |
+| `Status \| Done` | all 5 |
+| `Status & Done` | none in common → `never` |
+| `string & 'GET'` | `'GET'` (overlap) |
+| `{ id: number } & { name: string }` | objects having both properties |
+| `{ id: number } & { id: string }` | `id: never` (conflicting property) |
+
+### Why object intersections "add" properties
+A value of `A & B` must be assignable to A **and** to B, so it needs every property of both. That looks like a merge but it's still "the overlap of two sets of values".
+
+### Assignability in one sentence
+`X` is assignable to `Y` if **every** possible value of X is also a value of Y.
+- `'GET'` → `'GET' | 'POST'` ✅
+- `string | number` → `string` ❌ (a number isn't a string)
+- In conditional types, `[T] extends [string]` asks exactly this question for the whole union (`[string | number] extends [string]` → false).
+
+### Practical uses
+- Union: props that accept several shapes, API results (`Success | Failure`).
+- Intersection: mixing in shared fields (`type WithTimestamps<T> = T & { createdAt: Date }`), combining props.
+:::
+
+::: diagram Union and intersection as sets
+flowchart LR
+  S["Status: loading, success, error"] --> U["Status | Done: 5 strings"]
+  D["Done: Done, Failed"] --> U
+  S --> I["Status & Done: no common value"]
+  D --> I
+  I --> N["never"]
+:::
+
+::: image Union (|) vs intersection (&)
+/images/typescript/union-intersection.svg
+:::
+
+::: text 🪜 Step by step
+Why `type Complete = Status & Done` is `never`:
+1. `Status` = {`'loading'`, `'success'`, `'error'`}.
+2. `Done` = {`'Done'`, `'Failed'`}.
+3. `&` keeps only values that are in **both** sets.
+4. No string is in both → the empty set → `never`.
+5. Any variable of type `Complete` can't be assigned anything (`const c: Complete = 'Done'` errors). You probably wanted `Status | Done`.
+:::
+
+::: code typescript Unions, intersections and assignability (checked with tsc --strict)
+type Status = 'loading' | 'success' | 'error';
+type Done = 'Done' | 'Failed';
+
+type Either = Status | Done;            // 5 possible strings
+type Complete = Status & Done;          // never
+const e: Either = 'Failed';
+// @ts-expect-error: nothing is assignable to never
+const c: Complete = 'Done';
+
+type WithId = { id: number };
+type WithName = { name: string };
+type Entity = WithId & WithName;        // needs both properties
+const ok: Entity = { id: 1, name: 'Asha' };
+// @ts-expect-error: name is missing
+const missing: Entity = { id: 1 };
+
+type Conflict = { id: number } & { id: string };
+declare const conflict: Conflict;
+const impossible: never = conflict.id;  // number & string = never
+
+declare const wide: string | number;          // could be either
+// @ts-expect-error: string | number is not assignable to string
+const narrow: string = wide;
+let assigned: string | number = 'x';
+const fine: string = assigned;                // OK: TS narrowed `assigned` to string after the assignment
+assigned = 5;
+const literal: 'GET' = 'GET';
+const method: 'GET' | 'POST' = literal; // narrow → wide is fine
+
+type IsStringOnly<T> = [T] extends [string] ? true : false;
+const a: IsStringOnly<string> = true;
+const b: IsStringOnly<string | number> = false;   // the whole union is not assignable to string
+console.log(e, c, ok, missing, impossible, narrow, fine, assigned, method, a, b);
+:::
+
+::: code javascript Unions and intersections as sets of values (runnable)
+const Status = new Set(['loading', 'success', 'error']);
+const Done = new Set(['Done', 'Failed']);
+const union = new Set([...Status, ...Done]);
+const intersection = [...Status].filter((v) => Done.has(v));
+console.log({ union: [...union], intersection });
+console.log('Status | Done has 5 values', union.size === 5 ? '✅' : '❌ FAIL');
+console.log('Status & Done is empty (never)', intersection.length === 0 ? '✅' : '❌ FAIL');
+
+// "X assignable to Y" = every value of X is also in Y
+const assignable = (x, y) => [...x].every((v) => y.has(v));
+console.log("'GET' → 'GET' | 'POST'", assignable(new Set(['GET']), new Set(['GET', 'POST'])) ? '✅' : '❌ FAIL');
+console.log("'a' | 'b' → 'a' is not allowed", !assignable(new Set(['a', 'b']), new Set(['a'])) ? '✅' : '❌ FAIL');
+:::
+
+::: warning ⚠️ Common mistakes
+- Using `&` to "combine" two string unions (you get `never`; you meant `|`).
+- Intersecting object types with conflicting property types (the property becomes `never`).
+- Expecting to use a property that only some union members have, without narrowing.
+- Thinking `A & B` is "bigger" than `A` (it accepts fewer values, but each value has more properties).
+:::
+
+::: understand
+- Types are sets of values: `|` = either set, `&` = only the overlap; assignability = subset.
+:::
+
+::: ask
+- *"Do you want a value that can be either, or one that must be both?"*
+:::
+
+::: important ⭐ Say this in the interview
+"A union means a value is one of several types, so it's the bigger set and I can only use common members until I narrow. An intersection means the value must satisfy all types at once, the overlap. For object types that looks like a merge because the value needs every property, but for literal types without overlap, like two different string unions, the intersection is never. Assignability is a subset check: a literal fits a union that contains it, but string or number doesn't fit string."
+:::
+
+::: links
+Handbook: Union types | https://www.typescriptlang.org/docs/handbook/2/everyday-types.html#union-types
+Handbook: Intersection types | https://www.typescriptlang.org/docs/handbook/2/objects.html#intersection-types
+:::
+
 === any vs unknown vs never
 @p 3
 @tags typescript, any, unknown, never
@@ -772,7 +1049,7 @@ Handbook: More on functions | https://www.typescriptlang.org/docs/handbook/2/fun
 - `enum Role { Admin = 'ADMIN' }` creates a **runtime object** (numeric enums also add a reverse mapping).
 - A **union of literals** `'ADMIN' | 'USER'` has **zero runtime cost** and accepts plain strings.
 - Get both a list and a type from one source: `const ROLES = ['ADMIN', 'USER'] as const; type Role = (typeof ROLES)[number]`.
-- Enums aren't supported by "erasable syntax" tools (Node type stripping, `erasableSyntaxOnly`); unions are.
+- Enums aren't supported by "erasable syntax" tools (Node type stripping, `erasableSyntaxOnly`); unions are. Same for `namespace` and constructor parameter properties (`constructor(public id: number)`): Node 22 throws `ERR_UNSUPPORTED_TYPESCRIPT_SYNTAX`.
 - Many teams prefer unions; enums are fine if you need a named runtime object (or `const enum` with care).
 
 ::: text 🧒 In simple words
