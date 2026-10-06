@@ -1483,6 +1483,168 @@ Node.js: Understanding setImmediate() | https://nodejs.org/en/learn/asynchronous
 Node.js: The event loop, timers and nextTick | https://nodejs.org/en/learn/asynchronous-work/event-loop-timers-and-nexttick
 :::
 
+=== Predict the output: Node.js event loop puzzles (nextTick, Promise, setTimeout, setImmediate)
+@p 3
+@tags event-loop, nextTick, setImmediate, output-puzzle, interview
+@quick
+- Method: (1) run all **sync** code, (2) drain **nextTick** queue, (3) drain **promise** microtasks, (4) **timers**, (5) poll (I/O), (6) **check** (`setImmediate`), repeating 2–3 after every callback.
+- Classic puzzle `A, setTimeout B, Promise C, nextTick D, E` → measured **A E D C B**.
+- `await x` pauses the async function; the code **before** the first `await` runs synchronously.
+- A `nextTick` queued **inside** a `.then` runs only after the promise queue is empty (measured `8 10 9`).
+- Top-level `setTimeout(0)` vs `setImmediate` is **not deterministic** (measured 16/20 immediate first); inside an I/O callback, `setImmediate` always wins (5/5).
+
+::: text 🧒 In simple words
+Think of four lines at an airport. First everyone **already at the counter** is served (sync code). Then the **VIP line** (`nextTick`), then the **priority line** (promises), and only then the **regular lines** (timers, I/O, `setImmediate`). Whenever someone in a regular line is served, the VIP and priority lines are emptied again before the next regular passenger.
+:::
+
+::: text 📖 Detailed answer
+### Puzzle 1 (from your roadmap doc)
+`console.log("A");`  
+`setTimeout(() => console.log("B"), 0);`  
+`Promise.resolve().then(() => console.log("C"));`  
+`process.nextTick(() => console.log("D"));`  
+`console.log("E");`
+
+Measured on Node 22: **A E D C B**.
+- `A`, `E`: synchronous.
+- `D`: nextTick queue, drained first once the stack is empty.
+- `C`: promise microtask, right after the nextTick queue.
+- `B`: timers phase of the next loop iteration.
+
+### Puzzle 2: async/await mixed in (measured 6 runs)
+`async function first() { console.log('1'); await second(); console.log('2'); }`  
+`async function second() { console.log('3'); }`  
+`console.log('4');`  
+`setTimeout(() => console.log('5'), 0);`  
+`setImmediate(() => console.log('6'));`  
+`first();`  
+`process.nextTick(() => console.log('7'));`  
+`Promise.resolve().then(() => { console.log('8'); process.nextTick(() => console.log('9')); })`  
+`.then(() => console.log('10'));`  
+`console.log('11');`
+
+Measured: **4 1 3 11 7 2 8 10 9**, then **5 6** (4 runs) or **6 5** (2 runs).
+- `1` and `3` print synchronously: an async function runs until its first `await`.
+- `7` (nextTick) before `2` and `8` (promises).
+- `2` and `8` are queued promise jobs in order; `10` is queued while draining and still runs in the same drain.
+- `9` was queued with nextTick **during** the promise drain, so it waits until the promise queue is empty.
+- `5`/`6`: top-level timer vs immediate race.
+
+### Puzzle 3: inside an I/O callback (measured 5/5)
+Inside `fs.readFile(…, cb)`: `nextTick → promise → immediate → timeout`, because after the poll phase comes **check** (`setImmediate`), and timers only on the next iteration.
+:::
+
+::: diagram How to solve any output puzzle
+flowchart TD
+  S["1: run all synchronous code, including async functions up to the first await"] --> N["2: drain the nextTick queue"]
+  N --> P["3: drain the promise queue, nextTicks added here wait until it is empty"]
+  P --> T["4: timers phase: due setTimeout callbacks"]
+  T --> IO["5: poll phase: I/O callbacks"]
+  IO --> C["6: check phase: setImmediate"]
+  C --> N
+:::
+
+::: image Predicting Node.js output order
+/images/nodejs/output-order.svg
+:::
+
+::: text 🪜 Step by step
+Solving puzzle 1 out loud in an interview:
+1. "Sync first: A, then E."
+2. "Stack empty → nextTick queue: D."
+3. "Then promise microtasks: C."
+4. "Then the loop starts; timers phase: B."
+5. "Answer A E D C B. If there were a setImmediate at the top level, I'd say its order relative to setTimeout(0) isn't guaranteed."
+:::
+
+::: code javascript A mini event loop that reproduces the measured outputs (runnable)
+// Model of Node's queues: sync → nextTick → promises (nextTicks added while draining promises wait) → timers → check.
+function run(program) {
+  const out = [], ticks = [], promises = [], timers = [], immediates = [];
+  const api = {
+    log: (x) => out.push(x),
+    nextTick: (fn) => ticks.push(fn),
+    then: (fn) => promises.push(fn),
+    setTimeout: (fn) => timers.push(fn),
+    setImmediate: (fn) => immediates.push(fn),
+  };
+  const drainMicrotasks = () => {
+    while (ticks.length || promises.length) {
+      while (ticks.length) ticks.shift()();
+      while (promises.length) promises.shift()();      // Node drains the whole promise queue before nextTicks again
+    }
+  };
+  program(api);                    // synchronous part
+  drainMicrotasks();
+  for (const phase of [timers, immediates]) while (phase.length) { phase.shift()(); drainMicrotasks(); }
+  return out.join(' ');
+}
+
+const puzzle1 = run(({ log, nextTick, then, setTimeout }) => {
+  log('A'); setTimeout(() => log('B')); then(() => log('C')); nextTick(() => log('D')); log('E');
+});
+console.log('puzzle 1:', puzzle1, puzzle1 === 'A E D C B' ? '✅ matches Node 22' : '❌ FAIL');
+
+const puzzle2 = run(({ log, nextTick, then, setTimeout, setImmediate }) => {
+  log('4'); setTimeout(() => log('5')); setImmediate(() => log('6'));
+  log('1'); log('3'); then(() => log('2'));             // first(): sync until await, rest is a promise job
+  nextTick(() => log('7'));
+  then(() => { log('8'); nextTick(() => log('9')); then(() => log('10')); });
+  log('11');
+});
+console.log('puzzle 2:', puzzle2, puzzle2.startsWith('4 1 3 11 7 2 8 10 9') ? '✅ matches Node 22 (5/6 order varies at top level)' : '❌ FAIL');
+:::
+
+::: code javascript puzzles.js: run the real thing (node puzzles.js)
+const fs = require('node:fs');
+
+console.log('A');
+setTimeout(() => console.log('B'), 0);
+Promise.resolve().then(() => console.log('C'));
+process.nextTick(() => console.log('D'));
+console.log('E');
+// → A E D C B
+
+fs.readFile(__filename, () => {
+  setTimeout(() => console.log('timeout'), 0);
+  setImmediate(() => console.log('immediate'));
+  process.nextTick(() => console.log('nextTick'));
+  Promise.resolve().then(() => console.log('promise'));
+  // → nextTick, promise, immediate, timeout (always, inside an I/O callback)
+});
+
+// Starvation: 1,000,000 recursive nextTicks delayed this 0 ms timer to 73 ms (measured)
+let ticks = 0;
+const start = Date.now();
+setTimeout(() => console.log(`timer after ${Date.now() - start} ms, ${ticks} ticks first`), 0);
+(function loop() { if (++ticks < 1_000_000) process.nextTick(loop); })();
+:::
+
+::: warning ⚠️ Common mistakes
+- Putting `C` (promise) before `D` (nextTick).
+- Thinking the body of an async function is entirely asynchronous (it runs synchronously until the first `await`).
+- Giving a fixed order for top-level `setTimeout(0)` vs `setImmediate`.
+- Applying browser rules (no nextTick/setImmediate) to Node puzzles.
+- Forgetting that microtasks drain after **every** timer/immediate callback (Node 11+).
+:::
+
+::: understand
+- Sync → nextTick → promises → timers → poll → check; microtasks between every callback.
+:::
+
+::: ask
+- *"Is this at the top level or inside an I/O callback?"* It changes setTimeout vs setImmediate.
+:::
+
+::: important ⭐ Say this in the interview
+"I solve these in layers. First all synchronous code, including async functions up to their first await. Then the nextTick queue, then promise microtasks. Then the event loop phases: timers for setTimeout, poll for I/O, check for setImmediate, and after every callback the microtask queues are drained again. So the classic A, setTimeout B, promise C, nextTick D, E prints A E D C B; I ran it on Node 22 to confirm. Two traps: setTimeout zero versus setImmediate at the top level isn't deterministic, while inside an I/O callback setImmediate always runs first, and a nextTick scheduled inside a then callback waits until the promise queue is empty."
+:::
+
+::: links
+Node.js: The event loop, timers and nextTick | https://nodejs.org/en/learn/asynchronous-work/event-loop-timers-and-nexttick
+Node.js: Understanding process.nextTick() | https://nodejs.org/en/learn/asynchronous-work/understanding-processnexttick
+:::
+
 === What is EventEmitter?
 @p 2
 @tags events, observer-pattern

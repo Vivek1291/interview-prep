@@ -49,7 +49,7 @@ after(async () => {
 test('fresh install seeds the tree in the right shape', async () => {
   const roots = childrenOf(tree, null).map((n) => n.title);
   assert.deepEqual(roots, ['Frontend', 'Backend', 'System Design', 'DevOps', 'Testing', 'DSA']);
-  assert.equal(tree.pages.length, 350);
+  assert.equal(tree.pages.length, 363);
   assert.equal(childrenOf(tree, node('frontend')._id).map((n) => n.title).join(' | '), 'JavaScript | TypeScript | React | Next.js | Web Security (Browser) | HTML & CSS');
   assert.deepEqual(childrenOf(tree, node('frontend/typescript')._id).map((n) => n.title), ['TypeScript Fundamentals', 'TypeScript Advanced & React']);
   assert.deepEqual(childrenOf(tree, node('frontend/nextjs')._id).map((n) => n.title), ['Next.js Fundamentals', 'Next.js Data, Caching & Server']);
@@ -62,7 +62,7 @@ test('fresh install seeds the tree in the right shape', async () => {
   assert.deepEqual(childrenOf(tree, node('frontend/javascript/polyfills')._id).map((n) => n.title), ['JS Implementations (Polyfills)', 'Array & Function Polyfills']);
   assert.deepEqual(childrenOf(tree, node('frontend/react')._id).map((n) => n.title),
     ['React Fundamentals', 'React Hooks', 'React Performance', 'React Suspense & Concurrent React', 'React 19']);
-  assert.deepEqual(childrenOf(tree, node('backend/nodejs')._id).map((n) => n.title), ['Node.js Core', 'Express.js']);
+  assert.deepEqual(childrenOf(tree, node('backend/nodejs')._id).map((n) => n.title), ['Node.js Core', 'Node.js Runtime & Modules', 'Node.js Core Modules', 'Express.js']);
   assert.equal(childrenOf(tree, node('backend/databases/mongodb')._id).length, 4);
   assert.equal(tree.pages.filter((p) => String(p.section) === String(node('frontend/javascript/polyfills/js-implementations')._id)).length, 12);
   assert.equal(childrenOf(tree, node('backend/common')._id)[0].title, 'REST APIs & Authentication', 'a node\'s own files come before its placeholder children');

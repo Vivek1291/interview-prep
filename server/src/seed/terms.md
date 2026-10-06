@@ -577,3 +577,29 @@ console.log('payload becomes harmless text', escape('<img src=x onerror=alert(1)
 ::: text 📖 Pipeline
 - Style → Layout (where) → Paint (what) → Rasterize (pixels) → Composite (layers → screen).
 :::
+
+=== HMAC
+@aliases createHmac, keyed hash
+@summary Hash-based message authentication code: a hash computed with a secret key, so only someone who knows the key can produce it. Used for webhook signatures and signed cookies; compare it with `crypto.timingSafeEqual`.
+::: code javascript A naive comparison leaks progress (runnable)
+const naiveSteps = (a, b) => { let i = 0; while (i < a.length && a[i] === b[i]) i++; return i; };
+console.log('more correct leading characters → more work → measurable time', naiveSteps('9f86d081', '9f86d000') > naiveSteps('9f86d081', '00000000') ? '✅' : '❌ FAIL');
+:::
+
+=== Semver
+@aliases semantic versioning, caret range, tilde range
+@summary Versions written as MAJOR.MINOR.PATCH: major = breaking change, minor = new feature, patch = bug fix. In package.json, `^5.1.0` allows 5.x updates and `~5.1.0` only 5.1.x; the lockfile pins what was actually installed.
+::: text 📖 Ranges
+- `^5.1.0` → `>=5.1.0 <6.0.0` (for `0.x` the caret only allows patches).
+- `~5.1.0` → `>=5.1.0 <5.2.0`.
+- `5.1.0` → exactly that version.
+:::
+
+=== Path traversal
+@aliases directory traversal, dot-dot-slash
+@summary An attack where user input like `../../etc/passwd` makes the server read or write files outside the intended folder. Resolve the full path and only allow it if it starts with the base folder plus the path separator.
+::: text 📖 Defence
+- Prefer ids mapped to stored file names over user-supplied names.
+- `path.resolve(BASE, name)` then check `startsWith(BASE + path.sep)`.
+- `res.sendFile(name, { root })` and `express.static` do this check for you.
+:::

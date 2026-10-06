@@ -40,6 +40,8 @@ const TREE = [
         key: 'backend/nodejs', title: 'Node.js', icon: '🟢', color: '#22c55e', description: 'The runtime and its ecosystem.',
         children: [
           { key: 'backend/nodejs/core', files: ['01-node-core.md'] },
+          { key: 'backend/nodejs/runtime', files: ['43-node-runtime.md'] },
+          { key: 'backend/nodejs/modules', files: ['44-node-core-modules.md'] },
           { key: 'backend/nodejs/express', files: ['02-express.md'] },
         ],
       },

@@ -122,7 +122,9 @@ async function resetToDefaults() {
  *   - default categories whose key is missing are created (placeholders that became file nodes get their file)
  *   - pages of the given seed files are added to their category if no page with that title exists there
  */
-async function addMissingDefaults(files) {
+// `titles` (optional): only add these pages. Use it when new questions join a file that is already in the
+// database, so pages an admin renamed or deleted there are not added back.
+async function addMissingDefaults(files, { titles } = {}) {
   const all = defaultNodes();
   // only the nodes of the new files and their ancestors (a category the admin deleted stays deleted)
   const byKey = new Map(all.map((n) => [n.key, n]));
@@ -150,9 +152,9 @@ async function addMissingDefaults(files) {
       await Section.updateOne({ _id: node._id }, { $set: { seedFile: n.seedFile, title: n.title, icon: n.icon, description: n.description || '' } });
     }
     if (n.questions && files.includes(n.seedFile)) {
-      const titles = new Set((await Question.find({ section: node._id, owner: null }, 'title').lean()).map((q) => q.title));
+      const have = new Set((await Question.find({ section: node._id, owner: null }, 'title').lean()).map((q) => q.title));
       const last = await Question.findOne({ section: node._id }).sort({ order: -1 }).select('order').lean();
-      const fresh = n.questions.filter((q) => !titles.has(q.title));
+      const fresh = n.questions.filter((q) => !have.has(q.title) && (!titles || titles.includes(q.title)));
       if (fresh.length) {
         await Question.insertMany(fresh.map((q, i) => ({ ...q, section: node._id, owner: null, order: (last?.order ?? -1) + 1 + i })));
         addedPages += fresh.length;

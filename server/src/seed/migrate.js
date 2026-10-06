@@ -10,7 +10,7 @@ const Meta = require('../models/Meta');
 const Section = require('../models/Section');
 const { defaultNodes, seedIfEmpty, insertDefaultTerms, addMissingDefaults, reorderDefaultPages, syncDefaultNodeOrder, UNCATEGORISED } = require('./index');
 
-const CURRENT = 6;
+const CURRENT = 7;
 // v3 (Oct 2026): glossary terms + React sections (files 22-26) added to existing databases
 const V3_FILES = ['22-react-fundamentals.md', '23-react-hooks.md', '24-react-performance.md', '25-react-suspense.md', '26-react-19.md'];
 // v4 (Oct 2026): JavaScript sections (files 27-33) + any new glossary terms
@@ -23,6 +23,11 @@ const V5_NODE_ORDER = ['testing/common', 'testing/frontend', 'testing/backend'];
 const V6_FILES = ['42-web-security.md', '31-js-browser.md', '34-typescript-fundamentals.md', '35-typescript-advanced.md'];
 const V6_REORDERED = ['31-js-browser.md', '34-typescript-fundamentals.md', '35-typescript-advanced.md'];
 const V6_NODE_ORDER = ['frontend/security', 'frontend/html-css'];
+// v7 (Oct 2026): Node.js roadmap phases 1-2: Runtime & Modules (43), Core Modules (44), output puzzles in Node core (01)
+const V7_FILES = ['43-node-runtime.md', '44-node-core-modules.md'];
+const V7_NEW_IN_EXISTING = { files: ['01-node-core.md'], titles: ['Predict the output: Node.js event loop puzzles (nextTick, Promise, setTimeout, setImmediate)'] };
+const V7_REORDERED = ['01-node-core.md'];
+const V7_NODE_ORDER = ['backend/nodejs/core', 'backend/nodejs/runtime', 'backend/nodejs/modules', 'backend/nodejs/express'];
 
 async function getVersion() {
   return (await Meta.findById('schemaVersion').lean())?.value ?? null;
@@ -111,8 +116,16 @@ async function migrate() {
       const nodes = await syncDefaultNodeOrder(V6_NODE_ORDER);
       console.log(`🔁 Migrated to v6: ${r.addedNodes} new categories, ${r.addedPages} new pages, ${terms} glossary terms, ${moved} pages and ${nodes} categories put in learning order`);
     }
+    if (version == null || version < 7) {
+      const r = await addMissingDefaults(V7_FILES);
+      const r2 = await addMissingDefaults(V7_NEW_IN_EXISTING.files, { titles: V7_NEW_IN_EXISTING.titles });
+      const terms = await insertDefaultTerms(new Map(), { onlyMissing: true });
+      const moved = await reorderDefaultPages(V7_REORDERED);
+      const nodes = await syncDefaultNodeOrder(V7_NODE_ORDER);
+      console.log(`🔁 Migrated to v7: ${r.addedNodes} new categories, ${r.addedPages + r2.addedPages} new pages, ${terms} glossary terms, ${moved} pages and ${nodes} categories put in learning order`);
+    }
   }
   await setVersion(CURRENT);
 }
 
-module.exports = { migrate, CURRENT, V3_FILES, V4_FILES, V5_FILES, V6_FILES };
+module.exports = { migrate, CURRENT, V3_FILES, V4_FILES, V5_FILES, V6_FILES, V7_FILES };

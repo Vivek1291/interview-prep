@@ -1,8 +1,9 @@
 # 🎯 Full-Stack Interview Prep
 
-A self-hosted study app for **JavaScript, React, Node.js, Express, REST/Auth, MongoDB, Mongoose, AWS, Full-Stack integration, LLD (frontend, backend and full-stack) and DSA**. It ships with **350 questions** in 42 sections and 47 glossary terms, ordered by interview importance and arranged in learning order (what Node.js is comes before the event loop). That includes:
+A self-hosted study app for **JavaScript, React, Node.js, Express, REST/Auth, MongoDB, Mongoose, AWS, Full-Stack integration, LLD (frontend, backend and full-stack) and DSA**. It ships with **363 questions** in 44 sections and 50 glossary terms, ordered by interview importance and arranged in learning order (what Node.js is comes before the event loop). That includes:
 
 - **JavaScript** (55 questions): basics, functions and scope, objects and prototypes, async and the event loop, browser and DOM (rendering pipeline, rasterization and compositing, frames, progressive rendering, FCP/LCP measurement, DevTools, HTTP/2 and HTTP/3), array and function polyfills, and design patterns.
+- **Node.js runtime and core modules** (13 new questions): engine vs runtime, architecture (V8, libuv, bindings), the libuv thread pool, the process object, npm and semver, CommonJS vs ES modules, module caching and circular dependencies, fs, path and URL, a native HTTP server, crypto, zlib/util, and event loop output puzzles. Numbers measured on Node 22.
 - **Web Security** (7 questions): XSS and React, sanitizing HTML, CSP, where to keep tokens, CSRF, clickjacking and secrets in frontend code. Every defence was tested in Chrome.
 - **TypeScript** (19 questions): fundamentals (including how the compiler works and union vs intersection), then generics, utility types, conditional types, typing React, generic components and type-safe API calls with Zod. Every example compiles with `tsc --strict`.
 - **React** (36 questions): fundamentals, hooks, performance, Suspense and concurrent rendering, and React 19.
