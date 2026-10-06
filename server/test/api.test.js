@@ -49,7 +49,12 @@ after(async () => {
 test('fresh install seeds the tree in the right shape', async () => {
   const roots = childrenOf(tree, null).map((n) => n.title);
   assert.deepEqual(roots, ['Frontend', 'Backend', 'System Design', 'DevOps', 'Testing', 'DSA']);
-  assert.equal(tree.pages.length, 292);
+  assert.equal(tree.pages.length, 333);
+  assert.deepEqual(childrenOf(tree, node('frontend/typescript')._id).map((n) => n.title), ['TypeScript Fundamentals', 'TypeScript Advanced & React']);
+  assert.deepEqual(childrenOf(tree, node('frontend/nextjs')._id).map((n) => n.title), ['Next.js Fundamentals', 'Next.js Data, Caching & Server']);
+  assert.deepEqual(childrenOf(tree, node('testing')._id).map((n) => n.title), ['Testing Fundamentals', 'Frontend', 'Backend']);
+  const nodeCore = tree.pages.filter((p) => String(p.section) === String(node('backend/nodejs/core')._id)).sort((a, b) => a.order - b.order);
+  assert.equal(nodeCore[0].title, 'What is Node.js and why is it used?', 'learning order: what Node.js is comes first');
   assert.deepEqual(childrenOf(tree, node('frontend/javascript')._id).map((n) => n.title),
     ['Core Concepts', 'JS Async & Event Loop', 'Polyfills & Implementations', 'Browser & DOM', 'JS Design Patterns']);
   assert.deepEqual(childrenOf(tree, node('frontend/javascript/core')._id).map((n) => n.title), ['JS Basics', 'JS Functions & Scope', 'JS Objects & Prototypes']);

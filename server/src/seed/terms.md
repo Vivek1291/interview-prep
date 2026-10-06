@@ -495,3 +495,55 @@ console.log('click on an icon resolves to its li', closest(icon, 'li') === tree 
 - INP: break up long tasks, less JavaScript per interaction.
 - CLS: set width/height on images, reserve space for dynamic content.
 :::
+
+=== Generics
+@aliases generic type, type parameter
+@summary TypeScript type parameters like `<T>` that let one function, type or component work with many types while keeping the link between input and output: `first<T>(items: T[]): T | undefined`.
+::: code javascript The runtime half of a generic helper (runnable)
+const first = (items) => items[0];          // in TS: function first<T>(items: T[]): T | undefined
+console.log('works for any element type', first([1, 2]) === 1 && first(['a']) === 'a' && first([]) === undefined ? '✅' : '❌ FAIL');
+:::
+
+=== Type guard
+@aliases type predicate, narrowing
+@summary A check that tells TypeScript which member of a union a value is (`typeof`, `instanceof`, `in`, a discriminant, or a custom `isUser(v): v is User` function), so the code after it can safely use that type.
+::: code javascript A custom guard (runnable)
+const isUser = (v) => typeof v === 'object' && v !== null && typeof v.email === 'string';
+console.log('accepts users, rejects other values', isUser({ email: 'a@b.c' }) && !isUser(null) && !isUser('x') ? '✅' : '❌ FAIL');
+:::
+
+=== Server Actions
+@aliases server action, Server Functions, use server
+@summary Async functions marked `'use server'` that run on the server and can be called from forms and Client Components in Next.js/React, for mutations without writing an API route. Each one is a public endpoint, so validate input and check permissions inside it.
+::: text 📖 Remember
+- `<form action={createTodo}>` works even before JavaScript loads.
+- Client helpers: `useActionState`, `useFormStatus`, `useOptimistic`.
+- After writing data, call `updateTag`/`revalidatePath` so the UI shows fresh data.
+:::
+
+=== Partial Prerendering
+@aliases PPR, partial prerender, Cache Components
+@summary Next.js rendering where a static shell (everything cached or synchronous) is served instantly and the dynamic parts, wrapped in `<Suspense>`, stream in during the same request. In Next.js 16 it comes with Cache Components (`cacheComponents: true`, `'use cache'`).
+::: text 📖 Measured
+- Static shell (with the loading fallback) first byte: 5.1 ms.
+- The 400 ms dynamic part arrived at 416 ms in the same response.
+:::
+
+=== Test double
+@aliases test doubles, stub
+@summary Anything that stands in for a real dependency in a test: a stub returns canned answers, a spy records calls, a mock verifies expected interactions, a fake is a working lightweight implementation (in-memory DB, MSW server, fake timers).
+::: code javascript A hand-made spy (runnable)
+const spy = (impl) => { const f = (...a) => { f.calls.push(a); return impl(...a); }; f.calls = []; return f; };
+const send = spy(() => 'ok');
+send('asha@x.com');
+console.log('the spy recorded the call', send.calls.length === 1 && send.calls[0][0] === 'asha@x.com' ? '✅' : '❌ FAIL');
+:::
+
+=== Flaky test
+@aliases flaky tests, flakiness
+@summary A test that sometimes passes and sometimes fails without any code change, usually because it guesses timing (fixed sleeps), shares state with other tests, depends on order, real time or a real network service.
+::: text 📖 Fix the cause
+- Wait for conditions (`findBy`, Playwright web-first assertions), not for time: a fixed 200 ms wait failed 10/10 runs, an auto-waiting assertion passed 10/10.
+- Unique data per test, fake time, mock third parties.
+- Retries are for collecting traces, not for hiding the problem.
+:::

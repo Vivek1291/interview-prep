@@ -1,9 +1,10 @@
-import { Suspense, lazy, useEffect, useState } from 'react';
+import { Suspense, lazy, useEffect, useRef, useState } from 'react';
 import { Navigate, Route, Routes, useLocation } from 'react-router-dom';
 import Sidebar from './components/Sidebar';
 import TopBar from './components/TopBar';
 import AuthPage from './pages/AuthPage';
 import TermPanel from './components/TermPanel';
+import ScrollTopButton from './components/ScrollTopButton';
 import { useAuth } from './auth/AuthProvider';
 
 // Each screen is its own chunk: the browser only downloads the code for the page you open.
@@ -18,6 +19,7 @@ const TermPage = lazy(() => import('./pages/TermPage'));
 function AppLayout() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const location = useLocation();
+  const contentRef = useRef(null);
   useEffect(() => setSidebarOpen(false), [location.pathname]);
 
   return (
@@ -26,7 +28,7 @@ function AppLayout() {
       <div className="sidebar-backdrop" onClick={() => setSidebarOpen(false)} />
       <div className="main">
         <TopBar onMenu={() => setSidebarOpen((o) => !o)} />
-        <main className="content">
+        <main className="content" ref={contentRef}>
           <Suspense fallback={<div className="page"><div className="skeleton" /></div>}>
             <Routes>
               <Route path="/" element={<Dashboard />} />
@@ -39,6 +41,7 @@ function AppLayout() {
               <Route path="*" element={<Navigate to="/" replace />} />
             </Routes>
           </Suspense>
+          <ScrollTopButton targetRef={contentRef} />
         </main>
       </div>
       <TermPanel />

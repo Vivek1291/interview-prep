@@ -1,15 +1,18 @@
 # 🎯 Full-Stack Interview Prep
 
-A self-hosted study app for **JavaScript, React, Node.js, Express, REST/Auth, MongoDB, Mongoose, AWS, Full-Stack integration, LLD (frontend, backend and full-stack) and DSA**. It ships with **292 questions** in 33 sections and 37 glossary terms, ordered by interview importance. That includes:
+A self-hosted study app for **JavaScript, React, Node.js, Express, REST/Auth, MongoDB, Mongoose, AWS, Full-Stack integration, LLD (frontend, backend and full-stack) and DSA**. It ships with **333 questions** in 41 sections and 43 glossary terms, ordered by interview importance and arranged in learning order (what Node.js is comes before the event loop). That includes:
 
 - **JavaScript** (49 questions): basics, functions and scope, objects and prototypes, async and the event loop, browser and DOM, array and function polyfills, and design patterns.
+- **TypeScript** (15 questions): fundamentals, then generics, utility types, conditional types and typing React. Every example compiles with `tsc --strict`.
 - **React** (36 questions): fundamentals, hooks, performance, Suspense and concurrent rendering, and React 19.
+- **Next.js 16** (10 questions): App Router, Server vs Client Components, rendering strategies, caching with `use cache`, Server Actions, Route Handlers and Proxy. Verified against a real Next.js 16 app.
+- **Testing** (16 questions): fundamentals (unit, integration, E2E, mocks, TDD, coverage), React Testing Library with MSW, Playwright end-to-end tests, and Node.js API tests with Supertest. Every test shown was actually run.
 
 Each concept question includes:
 
 - 🧒 **In simple words**: an everyday analogy first
 - 📖 **Detailed answer** with tables, then 🪜 **Step by step** (what actually happens)
-- 📊 at least two visuals: a Mermaid diagram plus an illustration and/or a chart; charts use **numbers measured** on real software (MongoDB 7, Express 5, Mongoose 9, PM2, S3-compatible storage, Chrome, Node.js/V8…), not made-up values
+- 📊 at least two visuals: a Mermaid diagram plus an illustration and/or a chart; charts use **numbers measured** on real software (MongoDB 7, Express 5, Mongoose 9, PM2, S3-compatible storage, Chrome, Node.js/V8, Next.js 16, Vitest, Playwright…), not made-up values
 - 💻 complete code (with "How to run") and a **▶ Run**-able browser demo that checks itself with ✅ / ❌
 - ⚠️ common mistakes, 🧠 what you must understand, ❓ what to ask the interviewer
 - ⭐ **Say this in the interview**: a ready-to-speak answer
@@ -76,6 +79,8 @@ docker compose up -d --build  # rebuild after changing code
 - **📖 Terms (glossary)**: short explanations of words that keep coming up (libuv, hydration, idempotent, JWT…), 26 included. Terms are **linked automatically** inside pages (first mention, dotted underline): click one to read it in a side panel without leaving the page. Open **📖 Terms** in the top bar for the A–Z list and search, select any word on a page → **📖 Add as term** to create your own (private, or shared if you're an admin), and edit terms with the same block editor as pages. Turn the links off in Settings.
 - **🤖 Ask AI** (optional, set up by an admin): on any page, term or selected text, ask an AI for more detail, examples, a diagram or interview follow-ups. The answer streams in, is shown as page blocks (text, code, Mermaid diagrams), and can be **saved as a page** wherever you choose: as a sub-page of the current page or in any category. Learners save privately, admins save for everyone. See [AI assistant](#-ai-assistant-optional) below.
 - **🔍 Zoom** any image, diagram or chart: click it (or the ⤢ Zoom button) for a full-screen view. Scroll or pinch to zoom, drag to move, double-click to zoom in, `+` / `-` / `0` / `1` keys, Esc to close. SVGs and charts are re-drawn at the zoom level, so they stay sharp.
+- **🖨 Print / save as PDF** on any page or term: folded blocks are printed open, and the sidebar and buttons are left out.
+- **↑ Top** button appears when you scroll down a long page.
 - **⚡ Quick Revise**: the page's notes plus your own, in one page, filterable by category (including its sub-categories), must-know only, printable. **Select any text** in a question → **📌 Add to Quick Revise**.
 - **🏋️ Practice mode** (top bar) blurs the solutions until you click, so you try first.
 - **▶ Run**: runs plain JavaScript examples in a sandboxed web worker and shows the console output.

@@ -139,6 +139,7 @@ export default function QuestionPage() {
           <h1>{question.title}</h1>
         )}
         <div className="q-actions">
+          {!editing && <button className="btn" onClick={() => window.print()} title="Print this page or save it as a PDF (folded blocks are printed open)">🖨 Print</button>}
           {!editing && <button className="btn" onClick={() => setAskAi({})} title="Ask an AI for more detail, examples or a diagram">🤖 Ask AI</button>}
           {!editing && <button className="btn" onClick={() => setAddingSub(true)} title={isAdmin ? 'Add a page inside this page (shared)' : 'Add your own private page inside this page'}>＋ Sub-page</button>}
           {editing ? (

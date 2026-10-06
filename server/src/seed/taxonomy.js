@@ -17,7 +17,7 @@ const TREE = [
           { key: 'frontend/javascript/patterns', files: ['33-js-design-patterns.md'] },
         ],
       },
-      { key: 'frontend/typescript', title: 'TypeScript', icon: '🔷', color: '#3b82f6', description: 'Types, generics, utility types, typing React.' },
+      { key: 'frontend/typescript', title: 'TypeScript', icon: '🔷', color: '#3b82f6', description: 'Types, generics, utility types, typing React.', files: ['34-typescript-fundamentals.md', '35-typescript-advanced.md'] },
       {
         key: 'frontend/react', title: 'React', icon: '⚛️', color: '#06b6d4', description: 'Components, hooks, state, performance.',
         children: [
@@ -28,7 +28,7 @@ const TREE = [
           { key: 'frontend/react/react-19', files: ['26-react-19.md'] },
         ],
       },
-      { key: 'frontend/nextjs', title: 'Next.js', icon: '▲', color: '#64748b', description: 'Routing, server components, data fetching, rendering strategies.' },
+      { key: 'frontend/nextjs', title: 'Next.js', icon: '▲', color: '#64748b', description: 'Routing, server components, data fetching, rendering strategies.', files: ['36-nextjs-fundamentals.md', '37-nextjs-data.md'] },
       { key: 'frontend/html-css', title: 'HTML & CSS', icon: '🎨', color: '#f97316', description: 'Semantics, accessibility, layout, responsive design.' },
     ],
   },
@@ -113,21 +113,22 @@ const TREE = [
   {
     key: 'testing', title: 'Testing', icon: '🧪', color: '#14b8a6', description: 'Making sure it works, and keeps working.',
     children: [
+      // learning order: fundamentals first
+      { key: 'testing/common', files: ['38-testing-fundamentals.md'] },
       {
         key: 'testing/frontend', title: 'Frontend', icon: '🎨', color: '#ec4899', description: 'Testing UIs.',
         children: [
-          { key: 'testing/frontend/react', title: 'React', icon: '⚛️', color: '#06b6d4', description: 'React Testing Library, Vitest, mocking.' },
-          { key: 'testing/frontend/nextjs', title: 'Next.js', icon: '▲', color: '#64748b', description: 'Testing Next.js apps, Playwright end-to-end.' },
+          { key: 'testing/frontend/react', files: ['39-react-testing-library.md'] },
+          { key: 'testing/frontend/nextjs', files: ['40-e2e-testing.md'] },
         ],
       },
       {
         key: 'testing/backend', title: 'Backend', icon: '⚙️', color: '#22c55e', description: 'Testing APIs and services.',
         children: [
-          { key: 'testing/backend/nodejs', title: 'Node.js', icon: '🟢', color: '#22c55e', description: 'node:test, Jest, Supertest, test databases.' },
+          { key: 'testing/backend/nodejs', files: ['41-node-testing.md'] },
           { key: 'testing/backend/java', title: 'Java', icon: '☕', color: '#f97316', description: 'JUnit, Mockito, Spring Boot tests.' },
         ],
       },
-      { key: 'testing/common', title: 'Common Topics', icon: '🧭', color: '#14b8a6', description: 'Test pyramid, TDD, mocking strategy, coverage.' },
     ],
   },
   {

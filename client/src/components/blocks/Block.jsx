@@ -1,4 +1,5 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import { flushSync } from 'react-dom';
 import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import RichTextEditor from './RichTextEditor';
@@ -52,8 +53,22 @@ function Body({ block }) {
 }
 
 // ---------------- VIEW MODE ----------------
+// While the browser prints, folded blocks are rendered open (flushSync: the print snapshot is taken right after 'beforeprint').
+function usePrinting() {
+  const [printing, setPrinting] = useState(false);
+  useEffect(() => {
+    const before = () => flushSync(() => setPrinting(true));
+    const after = () => setPrinting(false);
+    window.addEventListener('beforeprint', before);
+    window.addEventListener('afterprint', after);
+    return () => { window.removeEventListener('beforeprint', before); window.removeEventListener('afterprint', after); };
+  }, []);
+  return printing;
+}
+
 export function BlockView({ block }) {
   const [collapsed, setCollapsed] = useState(!!block.collapsed);
+  const printing = usePrinting();
   const style = block.color ? { '--bc': block.color } : undefined;
   return (
     <section className={`block block-${block.type} ${block.color ? 'colored' : ''} variant-${block.variant || 'none'}`} style={style}>
@@ -63,7 +78,7 @@ export function BlockView({ block }) {
           <span className={`caret ${collapsed ? '' : 'open'}`}>▸</span>
         </button>
       )}
-      {!collapsed && <div className="block-body"><Body block={block} /></div>}
+      {(!collapsed || printing) && <div className="block-body"><Body block={block} /></div>}
     </section>
   );
 }

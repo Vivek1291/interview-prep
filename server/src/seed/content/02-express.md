@@ -3,6 +3,204 @@
 @color #f59e0b
 @desc Middleware, routing order, error handling, project structure, JWT auth, validation, pagination, uploads, filtering, error contracts and versioning, explained simply, measured, and with complete runnable Express 5 code.
 
+=== What is Express.js?
+@p 2
+@tags express, basics
+@quick
+- Express is a **minimal, unopinionated web framework** on top of Node's `http` module: routing, middleware, request/response helpers.
+- Current major version: **Express 5** (`npm install express` installs 5.x): async errors forwarded, stricter path syntax, Node 18+.
+- It gives you building blocks, not an architecture: you choose structure, validation, ORM, auth.
+- Measured hello-world JSON throughput (one process): Node `http` ~55k req/s, Fastify ~50k, Express 4 ~19.5k, **Express 5 ~17.5k**; real apps are usually DB-bound, not framework-bound.
+- Alternatives: **Fastify** (speed, JSON-schema validation), **NestJS** (structure, DI, TypeScript), Koa, Hono.
+
+::: text 🧒 In simple words
+Node's `http` module is like a **bare kitchen**: a stove and a sink. You can cook anything, but you have to build every shelf and system yourself. Express is a **set of practical kitchen tools**: a recipe book that matches orders to dishes (routing), a conveyor belt of prep stations (middleware) and handy utensils (`res.json`, `req.params`). It doesn't force a cooking style on you, which is great for flexibility but means the team must agree on how to organise the kitchen.
+:::
+
+::: text 📖 Detailed answer
+**Express** is the most widely used Node.js web framework. It wraps the low-level `http` server and adds:
+| Feature | What you get |
+|---|---|
+| **Routing** | `app.get('/users/:id', handler)`, route params, query parsing, routers |
+| **Middleware pipeline** | Compose cross-cutting concerns (auth, logging, validation) |
+| **Request/response helpers** | `req.params`, `req.query`, `req.get()`, `res.status().json()`, `res.cookie()`, `res.redirect()` |
+| **Static files** | `express.static('public')` |
+| **Ecosystem** | helmet, cors, multer, passport, express-rate-limit, morgan… |
+
+### Express 5 (current) vs Express 4
+| | Express 4 | Express 5 |
+|---|---|---|
+| Rejected promise in a handler | Request hangs unless you call `next(err)` | Forwarded to error middleware automatically |
+| Wildcard routes | `app.get('*')` | Named wildcards: `app.get('/*splat')` |
+| `req.query` | Writable, `qs` parser by default | Read-only getter, simple parser by default |
+| Removed | — | `req.param()`, `res.sendfile()` (use `sendFile`), `app.del()`… |
+| Node.js | 0.10+ | **18+** |
+
+### Measured throughput (hello-world JSON, 50 connections, one process, Node 22)
+| Server | Requests/s |
+|---|---|
+| Node `http` | ~55,000 |
+| Fastify 5 | ~50,000 |
+| Express 4 | ~19,500 |
+| Express 5 | ~17,500 |
+
+These numbers matter for tiny endpoints; most real APIs spend their time in the database and network, so team familiarity and ecosystem often matter more.
+
+### When to choose what
+| Framework | Pick it when |
+|---|---|
+| **Express** | You want the biggest ecosystem and maximum flexibility |
+| **Fastify** | You want high throughput and built-in schema validation/serialization |
+| **NestJS** | A large team wants enforced structure, DI, decorators, TypeScript-first |
+:::
+
+::: diagram What Express adds on top of Node's http module
+flowchart TB
+  HTTP["Node http.createServer: raw req, res"] --> EXP["Express app"]
+  EXP --> RT["Router: method + path → handlers, params"]
+  EXP --> MW["Middleware pipeline: json, cors, auth, logging"]
+  EXP --> HL["Helpers: res.json, res.status, req.params, req.query"]
+  EXP --> ER["Error handling: next(err), 4-arg middleware"]
+  RT --> YOU["Your handlers and services"]
+:::
+
+::: chart bar Measured: hello-world JSON throughput, one process (requests/second)
+Server,Requests per second
+Node http,55000
+Fastify 5,50000
+Express 4,19500
+Express 5,17500
+:::
+
+::: image Bare kitchen vs a set of tools: Express adds routing, middleware and helpers to Node's http server
+/images/express/what-is-express.svg
+:::
+
+::: text 🪜 Step by step
+What happens with `POST /api/todos` and body `{"title":"Learn Express"}` in the API below:
+1. Node's `http` server receives the request and hands it to the Express app function.
+2. `express.json()` (app-level middleware) reads the body stream and sets `req.body = { title: 'Learn Express' }`.
+3. The router matches `POST /api/todos` and runs the handler.
+4. The handler validates the title, creates the todo, and calls `res.status(201).location(...).json(todo)`.
+5. `res.json` serialises the object, sets `Content-Type: application/json` and ends the response.
+6. Unknown routes fall through to the 404 handler; thrown errors go to the error middleware.
+:::
+
+::: code javascript A complete small REST API in Express 5 (node todos.js)
+// How to run: npm install express && node todos.js
+// Then: curl -s -X POST localhost:3000/api/todos -H 'Content-Type: application/json' -d '{"title":"Learn Express"}'
+//       curl -s localhost:3000/api/todos     curl -s -X PATCH localhost:3000/api/todos/1 -H 'Content-Type: application/json' -d '{"done":true}'
+const express = require('express');
+
+const app = express();
+app.use(express.json());
+
+let nextId = 1;
+const todos = new Map();
+
+const findTodo = (req, res) => {
+  const todo = todos.get(Number(req.params.id));
+  if (!todo) res.status(404).json({ error: 'Todo not found' });
+  return todo;
+};
+
+app.get('/api/todos', (req, res) => res.json([...todos.values()]));
+
+app.get('/api/todos/:id', (req, res) => {
+  const todo = findTodo(req, res);
+  if (todo) res.json(todo);
+});
+
+app.post('/api/todos', (req, res) => {
+  const title = typeof req.body?.title === 'string' ? req.body.title.trim() : '';
+  if (!title) return res.status(400).json({ error: 'title is required' });
+  const todo = { id: nextId++, title, done: false };
+  todos.set(todo.id, todo);
+  return res.status(201).location(`/api/todos/${todo.id}`).json(todo);
+});
+
+app.patch('/api/todos/:id', (req, res) => {
+  const todo = findTodo(req, res);
+  if (!todo) return undefined;
+  if (typeof req.body?.done === 'boolean') todo.done = req.body.done;      // only allowed fields
+  if (typeof req.body?.title === 'string' && req.body.title.trim()) todo.title = req.body.title.trim();
+  return res.json(todo);
+});
+
+app.delete('/api/todos/:id', (req, res) => {
+  todos.delete(Number(req.params.id));
+  res.status(204).end();
+});
+
+app.use((req, res) => res.status(404).json({ error: `No route for ${req.method} ${req.originalUrl}` }));
+
+const PORT = Number(process.env.PORT) || 3000;
+app.listen(PORT, () => console.log(`API on http://localhost:${PORT}`));
+:::
+
+::: code javascript Browser demo: the core of a router in 15 lines (runnable)
+// Express's job, simplified: match method + path pattern, extract params, call the handler.
+function createApp() {
+  const routes = [];
+  const add = (method) => (path, handler) => {
+    const keys = [];
+    const regex = new RegExp(`^${path.replace(/:([^/]+)/g, (_, k) => { keys.push(k); return '([^/]+)'; })}$`);
+    routes.push({ method, regex, keys, handler });
+  };
+  return {
+    get: add('GET'), post: add('POST'),
+    handle(method, url) {
+      for (const r of routes) {
+        const m = r.method === method && url.match(r.regex);
+        if (m) return r.handler({ params: Object.fromEntries(r.keys.map((k, i) => [k, m[i + 1]])) });
+      }
+      return { status: 404 };
+    },
+  };
+}
+
+const mini = createApp();
+mini.get('/users/:id', (req) => ({ status: 200, body: `user ${req.params.id}` }));
+mini.get('/users/:id/orders/:orderId', (req) => ({ status: 200, body: `order ${req.params.orderId} of ${req.params.id}` }));
+
+const a = mini.handle('GET', '/users/42');
+const b = mini.handle('GET', '/users/42/orders/7');
+const c = mini.handle('POST', '/users/42');
+console.log(a.body, a.body === 'user 42' ? '✅' : '❌ FAIL');
+console.log(b.body, b.body === 'order 7 of 42' ? '✅' : '❌ FAIL');
+console.log('wrong method → 404', c.status === 404 ? '✅' : '❌ FAIL');
+:::
+
+::: warning ⚠️ Common mistakes
+- Treating Express as an architecture: without agreed structure, apps become one huge `app.js`.
+- Copying Express 4 snippets into Express 5 (`app.get('*')`, writing to `req.query`) and getting errors.
+- Choosing a framework by hello-world benchmarks alone; the DB is usually the bottleneck.
+- Forgetting security basics Express doesn't add by default: `helmet`, rate limiting, body size limits, CORS rules.
+:::
+
+::: understand
+- Express = **routing + middleware + helpers** over Node's `http`; everything else is your choice.
+- Express 5 removes the biggest Express 4 trap (unhandled async errors); know both because many codebases still run 4.
+- Concepts transfer: Nest guards/interceptors and Fastify hooks are middleware with more structure.
+:::
+
+::: ask
+- *"Which framework does the team use, and which Express version?"*
+- *"Is raw throughput a real requirement?"* (e.g. a high-traffic proxy) → Fastify may be worth it.
+- *"Do we want enforced structure for a big team?"* → NestJS.
+:::
+
+::: important ⭐ Say this in the interview
+"Express is a minimal, unopinionated web framework on top of Node's http module. It gives me routing with path parameters, a middleware pipeline for things like JSON parsing, auth and logging, and helpers such as res.json and res.status, plus a huge ecosystem. The current major version is Express 5, which forwards rejected promises from async handlers to the error middleware and has stricter route path syntax. It's not the fastest: in a quick hello-world benchmark Fastify handled roughly two and a half times more requests, but real APIs are usually limited by the database. Because Express doesn't impose structure, I organise apps in layers, add helmet, rate limiting and validation, and would pick NestJS when a large team needs enforced conventions."
+:::
+
+::: links
+Express official site | https://expressjs.com
+Express 5: Migration guide | https://expressjs.com/en/guide/migrating-5.html
+Fastify | https://fastify.dev
+NestJS | https://nestjs.com
+:::
+
 === What is middleware in Express?
 @p 3
 @tags middleware, express
@@ -365,6 +563,155 @@ Express: Writing middleware (next) | https://expressjs.com/en/guide/writing-midd
 Express 5: Migration guide (async errors) | https://expressjs.com/en/guide/migrating-5.html
 :::
 
+=== Difference between application-level and router-level middleware
+@p 2
+@tags middleware, router
+@quick
+- **Application-level**: bound to `app` with `app.use()` / `app.METHOD()`; runs for every request (or a path prefix).
+- **Router-level**: bound to an `express.Router()` instance with `router.use()`; runs only for requests that enter that router.
+- A Router is a **mini-app** with its own middleware and routes → modular features: `app.use('/api/admin', adminRouter)`.
+- Use app-level for cross-cutting concerns (helmet, CORS, JSON parsing, logging, errors); router-level for feature concerns (admin auth, module validation).
+- `express.Router({ mergeParams: true })` lets nested routers read parent params like `:userId`.
+
+::: text 🧒 In simple words
+A shopping mall has **security at the main entrance** (application-level): everyone passes through it. Inside, some shops have **their own door staff** (router-level): the jewellery store checks bags, the cinema checks tickets, but only for people going into that shop. Express works the same way: `app.use` is the mall entrance, a `Router` is a shop with its own rules, and you mount each shop at an address (`/api/admin`).
+:::
+
+::: text 📖 Detailed answer
+Both are the same kind of function `(req, res, next)`; the difference is **where they're attached** and therefore their **scope**.
+
+| | Application-level | Router-level |
+|---|---|---|
+| Attached to | `app` (the Express instance) | an `express.Router()` instance |
+| Registered with | `app.use(fn)`, `app.use('/path', fn)`, `app.get(...)` | `router.use(fn)`, `router.get(...)` |
+| Runs for | Every request (or every request under a prefix) | Only requests routed into that router |
+| Typical use | `helmet`, `cors`, `express.json`, request id, logging, global rate limit, 404, error handler | Auth for `/admin`, per-module validation, module logging, nested resources |
+
+### Routers as mini-apps
+- Each feature exports a router (`users.routes.js`, `orders.routes.js`) with its own middleware.
+- `app.use('/api/users', usersRouter)` mounts it; inside, paths are **relative** (`router.get('/:id')`).
+- Routers can be nested (`/api/users/:userId/orders`); use `mergeParams: true` to read `req.params.userId` in the child.
+
+### Common pattern: protect everything except a few routes
+Mount the **public** router first (`/api/auth`), then a router-level `authenticate` on the protected routers, so login and register stay public.
+:::
+
+::: diagram Mall entrance vs shop doors
+flowchart TD
+  R(["request"]) --> A["app.use: helmet, cors, json, logger (everyone)"]
+  A --> P{"path?"}
+  P -->|"/api/products"| PUB["publicRouter: no auth"]
+  P -->|"/api/admin"| ADM["adminRouter.use: authenticate + requireAdmin"]
+  P -->|"/api/users/:userId/orders"| ORD["ordersRouter (mergeParams)"]
+  ADM --> AR["admin routes"]
+:::
+
+::: image The mall entrance (app-level) checks everyone; each shop (router) has its own door staff
+/images/express/app-vs-router.svg
+:::
+
+::: text 🪜 Step by step
+`DELETE /api/admin/users/9` with a non-admin token, using the code below:
+1. App-level `express.json()` and the logger run (they run for everyone).
+2. The request doesn't match `/api/products` (public router), but matches the `/api/admin` mount.
+3. Inside `adminRouter`, the router-level `authenticate` reads the token → `req.user = { role: 'user' }` → `next()`.
+4. Router-level `requireAdmin` sees `role !== 'admin'` → responds **403**; the route handler never runs.
+5. A request to `/api/products` never touches `authenticate` or `requireAdmin` at all.
+6. `GET /api/users/5/orders` enters `ordersRouter`; thanks to `mergeParams`, it can read `req.params.userId === '5'`.
+:::
+
+::: code javascript App-level vs router-level, nested routers (node routers.js)
+// How to run: npm install express && node routers.js
+// Then: curl localhost:3000/api/products
+//       curl -i -X DELETE localhost:3000/api/admin/users/9 -H "x-token: user-token"
+//       curl -i -X DELETE localhost:3000/api/admin/users/9 -H "x-token: admin-token"
+//       curl localhost:3000/api/users/5/orders
+const express = require('express');
+const app = express();
+
+// ---------- application-level: everyone passes here ----------
+app.use(express.json());
+app.use((req, res, next) => { console.log(`[app] ${req.method} ${req.originalUrl}`); next(); });
+
+// ---------- router-level: only for routes inside each router ----------
+const tokens = { 'user-token': { id: 1, role: 'user' }, 'admin-token': { id: 2, role: 'admin' } };
+const authenticate = (req, res, next) => {
+  req.user = tokens[req.get('x-token')];
+  return req.user ? next() : res.status(401).json({ error: 'AUTH_REQUIRED' });
+};
+const requireAdmin = (req, res, next) => (req.user.role === 'admin' ? next() : res.status(403).json({ error: 'FORBIDDEN' }));
+
+const publicRouter = express.Router();
+publicRouter.get('/products', (req, res) => res.json([{ id: 1, name: 'Mug' }]));
+
+const adminRouter = express.Router();
+adminRouter.use(authenticate, requireAdmin);                 // only for /api/admin/*
+adminRouter.get('/stats', (req, res) => res.json({ users: 2 }));
+adminRouter.delete('/users/:id', (req, res) => res.json({ deleted: Number(req.params.id) }));
+
+const ordersRouter = express.Router({ mergeParams: true });  // can read :userId from the parent path
+ordersRouter.get('/', (req, res) => res.json({ userId: req.params.userId, orders: ['o-1', 'o-2'] }));
+
+app.use('/api', publicRouter);
+app.use('/api/admin', adminRouter);
+app.use('/api/users/:userId/orders', ordersRouter);
+
+const PORT = Number(process.env.PORT) || 3000;
+app.listen(PORT, () => console.log(`http://localhost:${PORT}`));
+:::
+
+::: code javascript Browser demo: which middleware runs for which path? (runnable)
+// Model the stack: app-level entries apply to everything, router entries only under their mount path.
+const stack = [
+  { scope: 'app', mount: '/', name: 'json' },
+  { scope: 'app', mount: '/', name: 'logger' },
+  { scope: 'router', mount: '/api/admin', name: 'authenticate' },
+  { scope: 'router', mount: '/api/admin', name: 'requireAdmin' },
+  { scope: 'router', mount: '/api/users/:userId/orders', name: 'ordersRoutes' },
+];
+const matches = (mount, path) => {
+  const pattern = new RegExp(`^${mount.replace(/:[^/]+/g, '[^/]+')}(/|$)`);
+  return mount === '/' || pattern.test(path);
+};
+const runFor = (path) => stack.filter((m) => matches(m.mount, path)).map((m) => m.name);
+
+const products = runFor('/api/products');
+const admin = runFor('/api/admin/users/9');
+const orders = runFor('/api/users/5/orders');
+console.log('/api/products →', products.join(' > '), products.join() === 'json,logger' ? '✅' : '❌ FAIL');
+console.log('/api/admin/users/9 →', admin.join(' > '), admin.join() === 'json,logger,authenticate,requireAdmin' ? '✅' : '❌ FAIL');
+console.log('/api/users/5/orders →', orders.join(' > '), orders.includes('ordersRoutes') && !orders.includes('authenticate') ? '✅' : '❌ FAIL');
+:::
+
+::: warning ⚠️ Common mistakes
+- Putting `authenticate` at app level **before** the login route → nobody can log in.
+- Forgetting `mergeParams: true` in nested routers → `req.params.userId` is `undefined`.
+- Registering the same middleware at app and router level → it runs twice.
+- Mounting the 404 handler before routers.
+- Using absolute paths inside a router (`router.get('/api/admin/stats')`) when it's mounted at `/api/admin`.
+:::
+
+::: understand
+- Router-level middleware is how you keep **feature rules next to the feature** instead of one giant `app.js`.
+- Scope is decided by **where you mount**, not by the middleware itself.
+- The same function can be reused at either level (`authenticate` globally or per router).
+:::
+
+::: ask
+- *"How would you apply auth to everything except login and register?"* → mount the public auth router first, then protect routers with router-level `authenticate`.
+- *"Do nested resources need parent params?"* → `mergeParams`.
+- Trap: order still matters inside each router.
+:::
+
+::: important ⭐ Say this in the interview
+"Both are normal middleware functions; the difference is scope. Application-level middleware is attached to the app with app.use or app.METHOD and runs for every request, or every request under a path prefix, so I use it for cross-cutting things like helmet, CORS, JSON parsing, request ids, logging, the 404 and the error handler. Router-level middleware is attached to an express.Router and only runs for requests that enter that router, which is perfect for feature rules like admin authentication. Routers act as mini-apps I mount at a prefix; for nested resources like users/:userId/orders I use mergeParams so the child router can read the parent's parameters."
+:::
+
+::: links
+Express: Router API | https://expressjs.com/en/5x/api.html#router
+Express: Using middleware (router-level) | https://expressjs.com/en/guide/using-middleware.html#middleware.router
+:::
+
 === How do you create error-handling middleware? (handle errors in Express)
 @p 3
 @tags errors, middleware, async
@@ -564,6 +911,367 @@ console.log('bug message hidden in production', toResponse(new TypeError('secret
 Express: Error handling | https://expressjs.com/en/guide/error-handling.html
 Express 5: Migration guide (rejected promises) | https://expressjs.com/en/guide/migrating-5.html#rejected-promises
 Node.js best practices: error handling | https://github.com/goldbergyoni/nodebestpractices#2-error-handling-practices
+:::
+
+=== How do you handle API errors consistently?
+@p 2
+@tags errors, api-design
+@quick
+- One **error shape** for every failure, e.g. `{ error: { code, message, details?, requestId } }` (or RFC 9457 `application/problem+json`).
+- Correct **status codes**: 400 / 401 / 403 / 404 / 409 / 422 / 429 / 500 / 503.
+- Error **classes** (`NotFoundError`, `ConflictError`…) thrown anywhere → **one** error middleware formats them.
+- Stable machine-readable `code` for the frontend (and translations); human `message` for people.
+- Log 5xx with a **request id** and return that id to the client; never expose stack traces or DB messages.
+
+::: text 🧒 In simple words
+Imagine an airline where every desk reports problems differently: one writes "ERR!!", another says "sorry, can't", a third shows you an internal computer screen. Confusing! A good airline uses **one standard form** for every problem: a short code ("FLIGHT_FULL"), a clear sentence, the details, and a reference number you can quote to customer service. Consistent API errors are that standard form: the frontend can handle every failure in one place, and support can find the exact log line from the reference number.
+:::
+
+::: text 📖 Detailed answer
+### Why consistency matters
+- The frontend can handle errors **in one interceptor** (show field errors, redirect to login, retry later).
+- Error **codes** stay stable even if messages change or are translated.
+- A **request id** links what the user saw to the server logs.
+
+### Recommended body
+| Field | Example | Purpose |
+|---|---|---|
+| `code` | `"USER_NOT_FOUND"` | Stable, machine-readable |
+| `message` | `"User not found"` | Human-readable summary |
+| `details` | `[{ "field": "email", "message": "Invalid email" }]` | Field errors / extra context |
+| `requestId` | `"8f1c…"` | Correlate with logs |
+
+(RFC 9457 "Problem Details" is the standard alternative: `type`, `title`, `status`, `detail`, `instance` with `Content-Type: application/problem+json`.)
+
+### Status-code cheat sheet
+| Status | Use for |
+|---|---|
+| 400 | Malformed or invalid input |
+| 401 | Not authenticated (missing/invalid/expired token) |
+| 403 | Authenticated but not allowed |
+| 404 | Resource doesn't exist (or is hidden from this user) |
+| 409 | Conflict: duplicate, version mismatch |
+| 422 | Well-formed but semantically invalid (some teams use instead of 400) |
+| 429 | Rate limited (send `Retry-After`) |
+| 500 | Unexpected server bug |
+| 503 | Dependency down / maintenance (send `Retry-After`) |
+:::
+
+::: diagram One error contract from server to UI
+flowchart LR
+  T["throw NotFoundError / ConflictError / ValidationError"] --> EH["error middleware"]
+  U["unknown error (bug)"] --> EH
+  EH -->|"log 5xx with requestId"| L[("logs / Sentry")]
+  EH -->|"status + code + message + requestId"| C["client"]
+  C --> I["one interceptor: field errors, 401 → login, 429/503 → retry"]
+:::
+
+::: image One standard form for every problem: code, message, details and a reference number
+/images/express/api-errors.svg
+:::
+
+::: text 🪜 Step by step
+`POST /api/users` with an email that already exists:
+1. The service checks the repository and throws `new ConflictError('Email already registered')` (status 409, code `EMAIL_TAKEN`).
+2. Express 5 forwards the rejected promise to the error middleware.
+3. The middleware sees an `AppError` subclass → uses its status, code and message; no stack logging for a 4xx.
+4. It adds the request id from the `requestId` middleware and responds `409 { error: { code, message, requestId } }`.
+5. On the frontend, the API client turns the response into a typed error; the form shows "Email already registered" under the email field.
+6. For a bug (`TypeError`), the middleware logs the stack with the same request id and returns `500 INTERNAL_ERROR` with a generic message.
+:::
+
+::: code javascript Error classes + middleware + a client that understands them (node api-errors.js)
+// How to run: npm install express && node api-errors.js
+// Then: curl -i -X POST localhost:3000/api/users -H 'Content-Type: application/json' -d '{"email":"taken@x.com"}'
+const express = require('express');
+const crypto = require('crypto');
+
+// ---------- error classes ----------
+class AppError extends Error {
+  constructor(status, code, message, details) { super(message); Object.assign(this, { status, code, details }); }
+}
+class ValidationError extends AppError { constructor(details) { super(400, 'VALIDATION_ERROR', 'Validation failed', details); } }
+class UnauthorizedError extends AppError { constructor(message = 'Authentication required') { super(401, 'UNAUTHORIZED', message); } }
+class ForbiddenError extends AppError { constructor() { super(403, 'FORBIDDEN', 'You do not have permission'); } }
+class NotFoundError extends AppError { constructor(what = 'Resource') { super(404, `${what.toUpperCase()}_NOT_FOUND`, `${what} not found`); } }
+class ConflictError extends AppError { constructor(code, message) { super(409, code, message); } }
+
+// ---------- app ----------
+const app = express();
+app.use(express.json());
+app.use((req, res, next) => { req.id = req.get('x-request-id') || crypto.randomUUID(); res.set('X-Request-Id', req.id); next(); });
+
+const emails = new Set(['taken@x.com']);
+app.post('/api/users', (req, res) => {
+  const email = String(req.body?.email || '').toLowerCase();
+  if (!email.includes('@')) throw new ValidationError([{ field: 'email', message: 'Invalid email' }]);
+  if (emails.has(email)) throw new ConflictError('EMAIL_TAKEN', 'Email already registered');
+  emails.add(email);
+  res.status(201).json({ data: { email } });
+});
+app.get('/api/users/:id', () => { throw new NotFoundError('User'); });
+app.get('/api/admin', () => { throw new ForbiddenError(); });
+app.get('/api/me', () => { throw new UnauthorizedError(); });
+app.get('/api/bug', () => JSON.parse('{oops'));                  // a real bug → 500
+
+app.use((req, res, next) => next(new NotFoundError('Route')));
+// eslint-disable-next-line no-unused-vars
+app.use((err, req, res, next) => {
+  const known = err instanceof AppError;
+  if (!known) console.error(`[${req.id}]`, err);
+  res.status(known ? err.status : 500).json({
+    error: {
+      code: known ? err.code : 'INTERNAL_ERROR',
+      message: known ? err.message : 'Something went wrong',
+      ...(known && err.details ? { details: err.details } : {}),
+      requestId: req.id,
+    },
+  });
+});
+
+const PORT = Number(process.env.PORT) || 3000;
+app.listen(PORT, () => console.log(`http://localhost:${PORT}`));
+:::
+
+::: code javascript Browser demo: one client-side handler for every API error (runnable)
+// What a frontend API client does with a consistent error contract.
+class ApiError extends Error {
+  constructor(status, body) {
+    super(body?.error?.message || 'Network error');
+    this.status = status;
+    this.code = body?.error?.code || 'NETWORK_ERROR';
+    this.details = body?.error?.details || [];
+    this.requestId = body?.error?.requestId;
+  }
+}
+function decideUiAction(err) {
+  if (err.status === 401) return 'redirect-to-login';
+  if (err.status === 403) return 'show-permission-message';
+  if (err.status === 400 || err.status === 422) return `field-errors:${err.details.map((d) => d.field).join(',')}`;
+  if (err.status === 409) return `inline:${err.message}`;
+  if (err.status === 429 || err.status === 503) return 'retry-later';
+  return `toast:Something went wrong (ref ${err.requestId})`;
+}
+
+const cases = [
+  [401, { error: { code: 'UNAUTHORIZED', message: 'Authentication required' } }, 'redirect-to-login'],
+  [400, { error: { code: 'VALIDATION_ERROR', message: 'Validation failed', details: [{ field: 'email' }, { field: 'name' }] } }, 'field-errors:email,name'],
+  [409, { error: { code: 'EMAIL_TAKEN', message: 'Email already registered' } }, 'inline:Email already registered'],
+  [503, { error: { code: 'DB_UNAVAILABLE', message: 'Try again' } }, 'retry-later'],
+  [500, { error: { code: 'INTERNAL_ERROR', message: 'Something went wrong', requestId: 'abc-123' } }, 'toast:Something went wrong (ref abc-123)'],
+];
+for (const [status, body, expected] of cases) {
+  const action = decideUiAction(new ApiError(status, body));
+  console.log(`${status} ${body.error.code} → ${action}`, action === expected ? '✅' : '❌ FAIL');
+}
+:::
+
+::: warning ⚠️ Common mistakes
+- Different shapes per route (`{ msg }`, `{ error }`, plain text) → frontend special cases everywhere.
+- `200 OK` with `{ success: false }` → caches, monitoring and clients all think it worked.
+- Leaking stack traces, SQL/Mongo messages or internal hostnames in production.
+- Changing error `code` strings casually (they're part of the API contract).
+- No request id → impossible to connect a user's screenshot to the server log.
+:::
+
+::: understand
+- Errors are part of the **API contract**, just like successful responses; document them (OpenAPI).
+- Classes + one middleware = **one place** to change formatting, logging and mapping.
+- Consistency on the server enables **one interceptor** on the client.
+:::
+
+::: ask
+- *"Is there an existing error standard (RFC 9457, company style guide)?"*
+- *"Do messages need translating?"* → frontend maps `code` to translated text.
+- *"Which errors should alert someone?"* Usually 5xx and unusual 4xx spikes, not every 404.
+:::
+
+::: important ⭐ Say this in the interview
+"Every error the API returns has the same shape: a correct HTTP status plus a body with a stable machine-readable code, a human message, optional field details and a request id. In code, services throw error classes like NotFoundError or ConflictError, and a single error middleware turns them into that shape, logs unexpected 5xx errors with the request id and stack, and hides internals in production. Because the contract is consistent, the frontend handles errors in one interceptor: 401 goes to login, validation errors map to fields, 429 or 503 retry later, and anything else shows a message with the reference id support can look up."
+:::
+
+::: links
+RFC 9457: Problem Details for HTTP APIs | https://www.rfc-editor.org/rfc/rfc9457.html
+MDN: HTTP response status codes | https://developer.mozilla.org/en-US/docs/Web/HTTP/Status
+Express: Error handling | https://expressjs.com/en/guide/error-handling.html
+:::
+
+=== How do you validate request data?
+@p 3
+@tags validation, zod, joi, security
+@quick
+- **Never trust the client**: validate `body`, `params`, `query` (and some headers) on the server; frontend validation is only UX.
+- Use a schema library (**Zod**, Joi, express-validator) in one reusable `validate(schema)` middleware.
+- Reject or strip **unknown fields** (stops mass assignment like `"role": "admin"`), **coerce** query strings to numbers, **normalise** (trim, lowercase).
+- Respond **400** with field-level details: `[{ field: 'email', message: 'Invalid email' }]`.
+- Defence in depth: service rules (email unique) + DB constraints (unique index, schema validators).
+
+::: text 🧒 In simple words
+Validation is the **security check at a building entrance**. Before anyone goes in, a guard checks the visitor's form: is the name filled in, is the email real-looking, is the age a number, and is the visitor trying to sneak in an extra line like "I am the manager"? Forms that don't pass are handed back with notes next to each mistake. The receptionist inside (your business logic) can then trust that every form it receives is complete and in the right format.
+:::
+
+::: text 📖 Detailed answer
+Validation guarantees that data entering your system has the **right shape, types and limits**, and it blocks malicious input before it reaches your database.
+
+### Layers of validation
+| Layer | Tool | Purpose |
+|---|---|---|
+| Browser | HTML attributes, React Hook Form + Zod | Fast feedback (**not** security) |
+| **API boundary** | Zod / Joi middleware | The real gate: types, required fields, formats, ranges, unknown fields |
+| Service | Code | Business rules: "email not taken", "stock ≥ quantity" |
+| Database | Mongoose validators, **unique indexes**, JSON schema | Last line of defence, also against race conditions |
+
+### What to check
+| Part | Example rule |
+|---|---|
+| `req.body` | name 2–50 chars, valid email, password ≥ 8 with a number, no unknown keys |
+| `req.params` | `id` is a valid ObjectId / UUID / positive integer |
+| `req.query` | `page`, `limit` coerced to integers with bounds; `sort` from an allow-list |
+| Headers | `Content-Type`, idempotency keys, API versions |
+
+### Security wins
+- **Mass assignment**: `.strict()` (or stripping) prevents clients from setting `role`, `isVerified`, `balance`.
+- **NoSQL injection**: `{ "email": { "$ne": "" } }` fails because `email` must be a **string**.
+- **DoS**: limit string lengths, array sizes and body size (`express.json({ limit: '100kb' })`).
+
+### 400 or 422?
+Both are common: **400** for malformed or invalid input is the most widespread; some APIs use **422** for well-formed but semantically invalid data. Pick one and be consistent.
+:::
+
+::: diagram Validation layers
+flowchart LR
+  B["Browser form (UX only)"] --> M["validate(schema) middleware: shape, types, unknown fields"]
+  M -->|"invalid"| E400["400 with field errors"]
+  M -->|"valid, normalised"| S["Service: business rules (email unique?)"]
+  S -->|"conflict"| E409["409"]
+  S --> DB[("DB: unique index + schema validators")]
+:::
+
+::: image Validation as a building entrance: the guard checks the form, rejects extra lines, and hands back notes
+/images/express/validation.svg
+:::
+
+::: text 🪜 Step by step
+`POST /users` with `{"name":" Asha ","email":"ASHA@X.COM","password":"secret123","role":"admin"}` and the code below:
+1. `validate(createUserSchema)` builds `{ body, query, params }` and calls `schema.safeParse(...)`.
+2. Zod trims `name` → `"Asha"`, trims + lowercases the email, checks the password rules.
+3. `.strict()` finds an unknown key `role` → an `unrecognized_keys` issue → the request is **rejected** with `400`.
+4. Without `role`, parsing succeeds; the middleware stores the **parsed, normalised** data on `req.valid` and calls `next()`.
+5. The handler uses `req.valid.body` (never the raw `req.body`), so it only ever sees clean data.
+6. For `GET /users?page=2&limit=500`, `limit` is coerced from `"500"` to a number and fails `max(100)` → `400` with `field: "limit"`.
+:::
+
+::: code javascript Reusable Zod validation middleware (node validate.js)
+// How to run: npm install express zod && node validate.js
+// Then: curl -s -X POST localhost:3000/users -H 'Content-Type: application/json' -d '{"name":" Asha ","email":"ASHA@X.COM","password":"secret123"}'
+//       (try adding "role":"admin", a bad email, or curl "localhost:3000/users?limit=500")
+const express = require('express');
+const { z } = require('zod');
+
+// ---------- schemas ----------
+const objectId = z.string().regex(/^[a-f\d]{24}$/i, 'Must be a 24-character hex id');
+
+const createUserSchema = z.object({
+  body: z.object({
+    name: z.string().trim().min(2).max(50),
+    email: z.string().trim().toLowerCase().email(),
+    password: z.string().min(8).max(72).regex(/\d/, 'Needs at least one number'),
+    age: z.coerce.number().int().min(13).optional(),
+  }).strict(),                                       // unknown keys (e.g. "role") are an error
+});
+
+const listUsersSchema = z.object({
+  query: z.object({
+    page: z.coerce.number().int().min(1).default(1),
+    limit: z.coerce.number().int().min(1).max(100).default(20),
+    sort: z.enum(['name', '-name', 'createdAt', '-createdAt']).default('-createdAt'),
+  }),
+});
+
+const getUserSchema = z.object({ params: z.object({ id: objectId }) });
+
+// ---------- middleware ----------
+const validate = (schema) => (req, res, next) => {
+  const result = schema.safeParse({ body: req.body, query: req.query, params: req.params });
+  if (!result.success) {
+    const errors = result.error.issues.flatMap((issue) =>
+      issue.code === 'unrecognized_keys'
+        ? issue.keys.map((key) => ({ field: key, message: 'Unknown field' }))
+        : [{ field: issue.path.slice(1).join('.'), message: issue.message }]);
+    return res.status(400).json({ error: { code: 'VALIDATION_ERROR', message: 'Validation failed', details: errors } });
+  }
+  req.valid = result.data;                           // parsed, coerced, defaulted values
+  return next();
+};
+
+// ---------- app ----------
+const app = express();
+app.use(express.json({ limit: '100kb' }));
+
+app.post('/users', validate(createUserSchema), (req, res) => res.status(201).json({ created: req.valid.body }));
+app.get('/users', validate(listUsersSchema), (req, res) => res.json({ query: req.valid.query }));
+app.get('/users/:id', validate(getUserSchema), (req, res) => res.json({ id: req.valid.params.id }));
+
+const PORT = Number(process.env.PORT) || 3000;
+app.listen(PORT, () => console.log(`http://localhost:${PORT}`));
+:::
+
+::: code javascript Browser demo: a tiny schema validator that blocks mass assignment and injection (runnable)
+const rules = {
+  name: (v) => (typeof v === 'string' && v.trim().length >= 2) || 'name: at least 2 characters',
+  email: (v) => (typeof v === 'string' && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v)) || 'email: must be a valid email string',
+  age: (v) => v === undefined || (Number.isInteger(v) && v >= 13) || 'age: integer ≥ 13',
+};
+
+function validate(body, schema) {
+  const errors = [];
+  for (const key of Object.keys(body)) if (!schema[key]) errors.push(`${key}: unknown field`);
+  for (const [field, rule] of Object.entries(schema)) {
+    const result = rule(body[field]);
+    if (result !== true) errors.push(result);
+  }
+  return errors;
+}
+
+const good = validate({ name: 'Asha', email: 'asha@x.com', age: 30 }, rules);
+const massAssign = validate({ name: 'Asha', email: 'asha@x.com', role: 'admin' }, rules);
+const injection = validate({ name: 'Asha', email: { $ne: '' } }, rules);   // NoSQL injection attempt
+const many = validate({ name: 'A', email: 'nope', age: 9 }, rules);
+
+console.log('valid body → no errors', good.length === 0 ? '✅' : '❌ FAIL');
+console.log('mass assignment blocked →', massAssign.join('; '), massAssign.includes('role: unknown field') ? '✅' : '❌ FAIL');
+console.log('object instead of string rejected →', injection.join('; '), injection.length === 1 ? '✅' : '❌ FAIL');
+console.log('all problems reported at once →', many.length, many.length === 3 ? '✅' : '❌ FAIL');
+:::
+
+::: warning ⚠️ Common mistakes
+- Trusting frontend validation, or validating only `body` and forgetting `params`/`query`.
+- Passing `req.body` straight to `Model.create(req.body)` (mass assignment) or `req.query` straight to `find()` (NoSQL injection).
+- Using the raw `req.body` after validation instead of the **parsed** result (coercion and trimming are lost).
+- Returning only the first error, or a generic "Bad request" without field details.
+- No size limits → a 50 MB JSON body or a 10,000-item array slips through.
+:::
+
+::: understand
+- Validation turns "anything" into a **known type** at the boundary; everything inside can then be simpler and safer.
+- Schemas are **documentation and code at once**; with Zod you can share them between React and Node and infer TypeScript types.
+- DB constraints still matter: two concurrent requests can both pass "email not taken" checks; only a unique index stops the second.
+:::
+
+::: ask
+- *"Is there an existing error format for validation errors?"* (field/message pairs, 400 vs 422).
+- *"Strip unknown fields silently or reject them?"* Rejecting surfaces client bugs; stripping is more forgiving.
+- *"Can we share schemas with the frontend (monorepo)?"*
+:::
+
+::: important ⭐ Say this in the interview
+"I never trust client input, so every route validates body, params and query on the server with a schema library like Zod through one reusable validate middleware. The schema normalises data, trimming strings, lowercasing emails and coercing query strings to numbers with bounds, and it rejects unknown fields, which prevents mass assignment like a client sending role admin. Because fields must be strings or numbers, operator objects used for NoSQL injection fail too. Invalid requests get a 400 with field-level errors, and handlers only use the parsed result. Business rules like unique emails live in the service, and a unique index in the database is the final guard against race conditions."
+:::
+
+::: links
+Zod documentation | https://zod.dev
+OWASP: Input validation cheat sheet | https://cheatsheetseries.owasp.org/cheatsheets/Input_Validation_Cheat_Sheet.html
+OWASP: Mass assignment cheat sheet | https://cheatsheetseries.owasp.org/cheatsheets/Mass_Assignment_Cheat_Sheet.html
 :::
 
 === How would you structure a production Node.js / Express application?
@@ -1463,182 +2171,202 @@ MongoDB: Use indexes to sort query results | https://www.mongodb.com/docs/manual
 Slack Engineering: Evolving API pagination | https://slack.engineering/evolving-api-pagination-at-slack/
 :::
 
-=== How do you validate request data?
-@p 3
-@tags validation, zod, joi, security
+=== How do you implement filtering and sorting?
+@p 2
+@tags filtering, sorting, query, security
 @quick
-- **Never trust the client**: validate `body`, `params`, `query` (and some headers) on the server; frontend validation is only UX.
-- Use a schema library (**Zod**, Joi, express-validator) in one reusable `validate(schema)` middleware.
-- Reject or strip **unknown fields** (stops mass assignment like `"role": "admin"`), **coerce** query strings to numbers, **normalise** (trim, lowercase).
-- Respond **400** with field-level details: `[{ field: 'email', message: 'Invalid email' }]`.
-- Defence in depth: service rules (email unique) + DB constraints (unique index, schema validators).
+- Query string → MongoDB filter: `GET /products?category=books&minPrice=10&maxPrice=50&sort=-price,name&q=node`.
+- Build the filter from an **allow-list** with **casting**; never `Model.find(req.query)` (`?password[$ne]=x` = NoSQL injection).
+- Sort only by allowed (indexed) fields; map `-price` → `{ price: -1 }`; add `_id` as a tie-breaker.
+- Escape user input before using it in `$regex`; use a text index or Atlas Search for real search.
+- Index with the **ESR rule** (Equality → Sort → Range). Measured: **107.6 ms / 500,000 docs examined** without an index vs **1.5 ms / 20 docs** with `{ isDeleted: 1, category: 1, price: -1 }`.
 
 ::: text 🧒 In simple words
-Validation is the **security check at a building entrance**. Before anyone goes in, a guard checks the visitor's form: is the name filled in, is the email real-looking, is the age a number, and is the visitor trying to sneak in an extra line like "I am the manager"? Forms that don't pass are handed back with notes next to each mistake. The receptionist inside (your business logic) can then trust that every form it receives is complete and in the right format.
+Filtering and sorting is like asking a **librarian**: "show me only cookbooks, between $10 and $50, most expensive first". A good librarian only accepts questions from a **printed form** (allow-list), so nobody can sneak in "and also unlock the staff room" (injection). And a smart library keeps **index cards sorted exactly the way people usually ask** (by section, then price), so the librarian can walk straight to the right shelf instead of checking every book in the building.
 :::
 
 ::: text 📖 Detailed answer
-Validation guarantees that data entering your system has the **right shape, types and limits**, and it blocks malicious input before it reaches your database.
-
-### Layers of validation
-| Layer | Tool | Purpose |
+### Query-string conventions
+| Need | Example | MongoDB |
 |---|---|---|
-| Browser | HTML attributes, React Hook Form + Zod | Fast feedback (**not** security) |
-| **API boundary** | Zod / Joi middleware | The real gate: types, required fields, formats, ranges, unknown fields |
-| Service | Code | Business rules: "email not taken", "stock ≥ quantity" |
-| Database | Mongoose validators, **unique indexes**, JSON schema | Last line of defence, also against race conditions |
+| Equality | `?category=books` | `{ category: 'books' }` |
+| Range | `?minPrice=10&maxPrice=50` | `{ price: { $gte: 10, $lte: 50 } }` |
+| Multiple values | `?status=active,pending` | `{ status: { $in: [...] } }` |
+| Boolean | `?inStock=true` | `{ inStock: true }` |
+| Search | `?q=phone` | escaped `$regex` / `$text` |
+| Sort | `?sort=-price,name` | `{ price: -1, name: 1, _id: -1 }` |
+| Fields | `?fields=name,price` | `.select('name price')` |
 
-### What to check
-| Part | Example rule |
-|---|---|
-| `req.body` | name 2–50 chars, valid email, password ≥ 8 with a number, no unknown keys |
-| `req.params` | `id` is a valid ObjectId / UUID / positive integer |
-| `req.query` | `page`, `limit` coerced to integers with bounds; `sort` from an allow-list |
-| Headers | `Content-Type`, idempotency keys, API versions |
+### Security
+`Model.find(req.query)` (or a JSON body passed straight into a query) lets a client send **operators**. With Express 4's default `qs` parser, `?password[$ne]=x` becomes `{ password: { $ne: 'x' } }` and matches every user; Express 5 defaults to the simple parser (nested keys stay plain strings), but a JSON body like `{"email": {"$ne": ""}}` still carries operators. Always:
+- pick only **known** fields,
+- **cast** values (`String()`, `Number()`, booleans from `'true'`),
+- **escape** regex input (`a.c` should match a literal dot, and `(a+)+` shouldn't cause catastrophic backtracking).
 
-### Security wins
-- **Mass assignment**: `.strict()` (or stripping) prevents clients from setting `role`, `isVerified`, `balance`.
-- **NoSQL injection**: `{ "email": { "$ne": "" } }` fails because `email` must be a **string**.
-- **DoS**: limit string lengths, array sizes and body size (`express.json({ limit: '100kb' })`).
+### Performance: the ESR rule for compound indexes
+Put **E**quality fields first, then the **S**ort field, then **R**ange fields. For "category = books, price between 100 and 200, sorted by price desc":
+| Setup | Time | Docs examined |
+|---|---|---|
+| No index (COLLSCAN + in-memory SORT) | **107.6 ms** | 500,000 |
+| `{ isDeleted: 1, category: 1, price: -1 }` | **1.5 ms** | 20 |
 
-### 400 or 422?
-Both are common: **400** for malformed or invalid input is the most widespread; some APIs use **422** for well-formed but semantically invalid data. Pick one and be consistent.
+(Measured on MongoDB 7 with 500,000 products, `limit(20)`, median of 5 runs.)
 :::
 
-::: diagram Validation layers
+::: diagram Query string to safe MongoDB query
 flowchart LR
-  B["Browser form (UX only)"] --> M["validate(schema) middleware: shape, types, unknown fields"]
-  M -->|"invalid"| E400["400 with field errors"]
-  M -->|"valid, normalised"| S["Service: business rules (email unique?)"]
-  S -->|"conflict"| E409["409"]
-  S --> DB[("DB: unique index + schema validators")]
+  Q["?category=books&minPrice=10&sort=-price&q=c++"] --> P["parse + allow-list fields"]
+  P --> C["cast: String, Number, Boolean"]
+  C --> X["escape regex input"]
+  X --> F["filter: category, price range, name regex"]
+  P --> S["sort: allowed fields + _id tie-breaker"]
+  F --> DB[("MongoDB: ESR index category, price")]
+  S --> DB
 :::
 
-::: image Validation as a building entrance: the guard checks the form, rejects extra lines, and hands back notes
-/images/express/validation.svg
+::: chart bar Measured: products query with and without an ESR index (500k docs, ms)
+Setup,Query time (ms)
+No index (COLLSCAN + SORT),107.6
+ESR index,1.5
+:::
+
+::: image The librarian's form: only allowed questions, cast to the right types, answered from a matching index
+/images/express/filter-sort.svg
 :::
 
 ::: text 🪜 Step by step
-`POST /users` with `{"name":" Asha ","email":"ASHA@X.COM","password":"secret123","role":"admin"}` and the code below:
-1. `validate(createUserSchema)` builds `{ body, query, params }` and calls `schema.safeParse(...)`.
-2. Zod trims `name` → `"Asha"`, trims + lowercases the email, checks the password rules.
-3. `.strict()` finds an unknown key `role` → an `unrecognized_keys` issue → the request is **rejected** with `400`.
-4. Without `role`, parsing succeeds; the middleware stores the **parsed, normalised** data on `req.valid` and calls `next()`.
-5. The handler uses `req.valid.body` (never the raw `req.body`), so it only ever sees clean data.
-6. For `GET /users?page=2&limit=500`, `limit` is coerced from `"500"` to a number and fails `max(100)` → `400` with `field: "limit"`.
+`GET /products?category=books&minPrice=10&maxPrice=50&sort=-price&q=c%2B%2B&password[$ne]=x`:
+1. Express parses the query string (Express 4's `qs` parser would even turn `password[$ne]=x` into an object `{ $ne: 'x' }`).
+2. `buildProductQuery` ignores `password` entirely (not in the allow-list), whatever shape it has.
+3. `category` → `String('books')`; `minPrice`/`maxPrice` → numbers; NaN values are skipped.
+4. `q = 'c++'` is escaped to `c\+\+` before going into `$regex` (otherwise `+` means "one or more").
+5. `sort=-price` → `{ price: -1 }`; `_id: -1` is added as a tie-breaker; unknown sort fields are dropped.
+6. MongoDB uses the `{ isDeleted, category, price }` index: equality on the first two, ordered by price, range on price → reads only what it returns.
 :::
 
-::: code javascript Reusable Zod validation middleware (node validate.js)
-// How to run: npm install express zod && node validate.js
-// Then: curl -s -X POST localhost:3000/users -H 'Content-Type: application/json' -d '{"name":" Asha ","email":"ASHA@X.COM","password":"secret123"}'
-//       (try adding "role":"admin", a bad email, or curl "localhost:3000/users?limit=500")
+::: code javascript Safe filter + sort + pagination with Mongoose (node products.js)
+// How to run: npm install express mongoose && MONGO_URI=mongodb://localhost:27017/shop node products.js
+// Then: curl "localhost:3000/products?category=books&minPrice=10&maxPrice=50&sort=-price&q=node"
 const express = require('express');
-const { z } = require('zod');
+const mongoose = require('mongoose');
 
-// ---------- schemas ----------
-const objectId = z.string().regex(/^[a-f\d]{24}$/i, 'Must be a 24-character hex id');
-
-const createUserSchema = z.object({
-  body: z.object({
-    name: z.string().trim().min(2).max(50),
-    email: z.string().trim().toLowerCase().email(),
-    password: z.string().min(8).max(72).regex(/\d/, 'Needs at least one number'),
-    age: z.coerce.number().int().min(13).optional(),
-  }).strict(),                                       // unknown keys (e.g. "role") are an error
+const productSchema = new mongoose.Schema({
+  name: String, category: String, price: Number, tags: [String], inStock: Boolean, isDeleted: { type: Boolean, default: false },
 });
+productSchema.index({ isDeleted: 1, category: 1, price: -1 });          // ESR: equality, equality, sort/range
+const Product = mongoose.model('Product', productSchema);
 
-const listUsersSchema = z.object({
-  query: z.object({
-    page: z.coerce.number().int().min(1).default(1),
-    limit: z.coerce.number().int().min(1).max(100).default(20),
-    sort: z.enum(['name', '-name', 'createdAt', '-createdAt']).default('-createdAt'),
-  }),
-});
+const escapeRegex = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+const SORTABLE = ['price', 'name', 'createdAt'];
 
-const getUserSchema = z.object({ params: z.object({ id: objectId }) });
-
-// ---------- middleware ----------
-const validate = (schema) => (req, res, next) => {
-  const result = schema.safeParse({ body: req.body, query: req.query, params: req.params });
-  if (!result.success) {
-    const errors = result.error.issues.flatMap((issue) =>
-      issue.code === 'unrecognized_keys'
-        ? issue.keys.map((key) => ({ field: key, message: 'Unknown field' }))
-        : [{ field: issue.path.slice(1).join('.'), message: issue.message }]);
-    return res.status(400).json({ error: { code: 'VALIDATION_ERROR', message: 'Validation failed', details: errors } });
+function buildProductQuery(query) {
+  const filter = { isDeleted: false };
+  if (typeof query.category === 'string') filter.category = query.category;
+  if (typeof query.tags === 'string') filter.tags = { $all: query.tags.split(',').slice(0, 10) };
+  if (query.inStock === 'true' || query.inStock === 'false') filter.inStock = query.inStock === 'true';
+  const min = Number(query.minPrice);
+  const max = Number(query.maxPrice);
+  if (Number.isFinite(min) || Number.isFinite(max)) {
+    filter.price = {};
+    if (Number.isFinite(min)) filter.price.$gte = min;
+    if (Number.isFinite(max)) filter.price.$lte = max;
   }
-  req.valid = result.data;                           // parsed, coerced, defaulted values
-  return next();
-};
+  if (typeof query.q === 'string' && query.q.trim()) filter.name = { $regex: escapeRegex(query.q.trim().slice(0, 50)), $options: 'i' };
 
-// ---------- app ----------
-const app = express();
-app.use(express.json({ limit: '100kb' }));
-
-app.post('/users', validate(createUserSchema), (req, res) => res.status(201).json({ created: req.valid.body }));
-app.get('/users', validate(listUsersSchema), (req, res) => res.json({ query: req.valid.query }));
-app.get('/users/:id', validate(getUserSchema), (req, res) => res.json({ id: req.valid.params.id }));
-
-const PORT = Number(process.env.PORT) || 3000;
-app.listen(PORT, () => console.log(`http://localhost:${PORT}`));
-:::
-
-::: code javascript Browser demo: a tiny schema validator that blocks mass assignment and injection (runnable)
-const rules = {
-  name: (v) => (typeof v === 'string' && v.trim().length >= 2) || 'name: at least 2 characters',
-  email: (v) => (typeof v === 'string' && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v)) || 'email: must be a valid email string',
-  age: (v) => v === undefined || (Number.isInteger(v) && v >= 13) || 'age: integer ≥ 13',
-};
-
-function validate(body, schema) {
-  const errors = [];
-  for (const key of Object.keys(body)) if (!schema[key]) errors.push(`${key}: unknown field`);
-  for (const [field, rule] of Object.entries(schema)) {
-    const result = rule(body[field]);
-    if (result !== true) errors.push(result);
-  }
-  return errors;
+  const sort = {};
+  String(query.sort || '-price').split(',').forEach((token) => {
+    const field = token.replace(/^-/, '');
+    if (SORTABLE.includes(field)) sort[field] = token.startsWith('-') ? -1 : 1;
+  });
+  sort._id = -1;                                                         // stable order between pages
+  return { filter, sort };
 }
 
-const good = validate({ name: 'Asha', email: 'asha@x.com', age: 30 }, rules);
-const massAssign = validate({ name: 'Asha', email: 'asha@x.com', role: 'admin' }, rules);
-const injection = validate({ name: 'Asha', email: { $ne: '' } }, rules);   // NoSQL injection attempt
-const many = validate({ name: 'A', email: 'nope', age: 9 }, rules);
+const app = express();
+app.get('/products', async (req, res) => {
+  const { filter, sort } = buildProductQuery(req.query);
+  const page = Math.max(1, Number.parseInt(req.query.page, 10) || 1);
+  const limit = Math.min(100, Math.max(1, Number.parseInt(req.query.limit, 10) || 20));
+  const [data, total] = await Promise.all([
+    Product.find(filter).sort(sort).skip((page - 1) * limit).limit(limit).select('name category price inStock').lean(),
+    Product.countDocuments(filter),
+  ]);
+  res.json({ data, pagination: { page, limit, total }, appliedFilter: filter });
+});
 
-console.log('valid body → no errors', good.length === 0 ? '✅' : '❌ FAIL');
-console.log('mass assignment blocked →', massAssign.join('; '), massAssign.includes('role: unknown field') ? '✅' : '❌ FAIL');
-console.log('object instead of string rejected →', injection.join('; '), injection.length === 1 ? '✅' : '❌ FAIL');
-console.log('all problems reported at once →', many.length, many.length === 3 ? '✅' : '❌ FAIL');
+async function main() {
+  await mongoose.connect(process.env.MONGO_URI || 'mongodb://localhost:27017/shop');
+  if ((await Product.estimatedDocumentCount()) === 0) {
+    const cats = ['books', 'shoes', 'phones'];
+    await Product.insertMany(Array.from({ length: 60 }, (_, i) => ({
+      name: i % 7 === 0 ? `Node.js Guide ${i}` : `Item ${i}`, category: cats[i % 3], price: 5 + (i * 37) % 95, tags: i % 2 ? ['new'] : ['sale'], inStock: i % 4 !== 0,
+    })));
+    console.log('seeded 60 products');
+  }
+  const PORT = Number(process.env.PORT) || 3000;
+  app.listen(PORT, () => console.log(`http://localhost:${PORT}`));
+}
+main().catch((err) => { console.error(err); process.exit(1); });
+:::
+
+::: code javascript Browser demo: query string → safe filter, with injection attempts (runnable)
+const escapeRegex = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+const SORTABLE = ['price', 'name'];
+
+function build(qs) {
+  const q = Object.fromEntries(new URLSearchParams(qs));
+  const filter = {};
+  if (q.category) filter.category = String(q.category);
+  const min = Number(q.minPrice), max = Number(q.maxPrice);
+  if (Number.isFinite(min) || Number.isFinite(max)) filter.price = { ...(Number.isFinite(min) && { $gte: min }), ...(Number.isFinite(max) && { $lte: max }) };
+  if (q.q) filter.name = { $regex: escapeRegex(q.q) };
+  const sort = {};
+  (q.sort || '-price').split(',').forEach((t) => { const f = t.replace(/^-/, ''); if (SORTABLE.includes(f)) sort[f] = t.startsWith('-') ? -1 : 1; });
+  sort._id = -1;
+  return { filter, sort };
+}
+
+// "+" in a query string means a SPACE, so the client must encode it: encodeURIComponent('c++') === 'c%2B%2B'
+console.log('raw q=c++ decodes to', JSON.stringify(new URLSearchParams('q=c++').get('q')), new URLSearchParams('q=c++').get('q') === 'c  ' ? '✅' : '❌ FAIL');
+const a = build(`category=books&minPrice=10&maxPrice=50&sort=-price,name&q=${encodeURIComponent('c++')}`);
+console.log(JSON.stringify(a));
+console.log('range cast to numbers', a.filter.price.$gte === 10 && a.filter.price.$lte === 50 ? '✅' : '❌ FAIL');
+console.log('regex input escaped →', a.filter.name.$regex, a.filter.name.$regex === 'c\\+\\+' ? '✅' : '❌ FAIL');
+console.log('sort with tie-breaker', JSON.stringify(a.sort) === '{"price":-1,"name":1,"_id":-1}' ? '✅' : '❌ FAIL');
+const b = build('password[$ne]=x&sort=secretField&minPrice=abc');
+console.log('unknown fields and operators ignored →', JSON.stringify(b.filter), JSON.stringify(b.filter) === '{}' ? '✅' : '❌ FAIL');
+console.log('unknown sort field dropped', JSON.stringify(b.sort) === '{"_id":-1}' ? '✅' : '❌ FAIL');
 :::
 
 ::: warning ⚠️ Common mistakes
-- Trusting frontend validation, or validating only `body` and forgetting `params`/`query`.
-- Passing `req.body` straight to `Model.create(req.body)` (mass assignment) or `req.query` straight to `find()` (NoSQL injection).
-- Using the raw `req.body` after validation instead of the **parsed** result (coercion and trimming are lost).
-- Returning only the first error, or a generic "Bad request" without field details.
-- No size limits → a 50 MB JSON body or a 10,000-item array slips through.
+- `Model.find(req.query)` or spreading `req.query` into a filter → NoSQL injection.
+- Unescaped `$regex` from user input (wrong matches, ReDoS) or regex search on huge collections without an index.
+- Sorting by any field the client names (no index → in-memory sort, 100 MB limit errors).
+- Indexes in the wrong order (range before sort) → MongoDB can't use the index for sorting.
+- Filters only in React state → links can't be shared and Back loses them (put them in the URL).
+- Building query strings by hand: `+` means a space and `&` splits parameters, so always use `URLSearchParams`/`encodeURIComponent` on the client.
 :::
 
 ::: understand
-- Validation turns "anything" into a **known type** at the boundary; everything inside can then be simpler and safer.
-- Schemas are **documentation and code at once**; with Zod you can share them between React and Node and infer TypeScript types.
-- DB constraints still matter: two concurrent requests can both pass "email not taken" checks; only a unique index stops the second.
+- The API should express **what** the client may ask; the allow-list is that contract.
+- Index design follows real query shapes; check with `explain('executionStats')`: compare `totalDocsExamined` to returned docs.
+- Search beyond simple prefixes belongs in a search engine (Atlas Search, OpenSearch, Algolia).
 :::
 
 ::: ask
-- *"Is there an existing error format for validation errors?"* (field/message pairs, 400 vs 422).
-- *"Strip unknown fields silently or reject them?"* Rejecting surfaces client bugs; stripping is more forgiving.
-- *"Can we share schemas with the frontend (monorepo)?"*
+- *"Which fields can be filtered and sorted? Which combinations are common?"* (drives indexes).
+- *"Prefix search or full-text with typo tolerance?"* → regex vs text index vs search engine.
+- *"Should filters live in the URL?"* (shareable, back button).
 :::
 
 ::: important ⭐ Say this in the interview
-"I never trust client input, so every route validates body, params and query on the server with a schema library like Zod through one reusable validate middleware. The schema normalises data, trimming strings, lowercasing emails and coercing query strings to numbers with bounds, and it rejects unknown fields, which prevents mass assignment like a client sending role admin. Because fields must be strings or numbers, operator objects used for NoSQL injection fail too. Invalid requests get a 400 with field-level errors, and handlers only use the parsed result. Business rules like unique emails live in the service, and a unique index in the database is the final guard against race conditions."
+"I map query parameters to a MongoDB filter through an allow-list: only known fields, cast to the right type, ranges like minPrice and maxPrice become $gte and $lte, and search text is escaped before it goes into a regex. I never pass req.query directly to find, because an operator like password[$ne] would turn into a NoSQL injection. Sorting accepts only allowed fields, maps a leading minus to descending and adds _id as a tie-breaker. Then I create compound indexes following the equality, sort, range rule; in a test with 500,000 products, the right index took a filtered, sorted query from about 108 milliseconds and half a million documents examined down to 1.5 milliseconds and 20 documents."
 :::
 
 ::: links
-Zod documentation | https://zod.dev
-OWASP: Input validation cheat sheet | https://cheatsheetseries.owasp.org/cheatsheets/Input_Validation_Cheat_Sheet.html
-OWASP: Mass assignment cheat sheet | https://cheatsheetseries.owasp.org/cheatsheets/Mass_Assignment_Cheat_Sheet.html
+MongoDB: The ESR (Equality, Sort, Range) rule | https://www.mongodb.com/docs/manual/tutorial/equality-sort-range-rule/
+OWASP: NoSQL injection testing | https://owasp.org/www-project-web-security-testing-guide/latest/4-Web_Application_Security_Testing/07-Input_Validation_Testing/05.6-Testing_for_NoSQL_Injection
+MongoDB: explain results | https://www.mongodb.com/docs/manual/reference/explain-results/
 :::
 
 === How do you handle file uploads in Express?
@@ -1852,387 +2580,6 @@ MDN: Using FormData objects | https://developer.mozilla.org/en-US/docs/Web/API/F
 OWASP: File upload cheat sheet | https://cheatsheetseries.owasp.org/cheatsheets/File_Upload_Cheat_Sheet.html
 :::
 
-=== How do you implement filtering and sorting?
-@p 2
-@tags filtering, sorting, query, security
-@quick
-- Query string → MongoDB filter: `GET /products?category=books&minPrice=10&maxPrice=50&sort=-price,name&q=node`.
-- Build the filter from an **allow-list** with **casting**; never `Model.find(req.query)` (`?password[$ne]=x` = NoSQL injection).
-- Sort only by allowed (indexed) fields; map `-price` → `{ price: -1 }`; add `_id` as a tie-breaker.
-- Escape user input before using it in `$regex`; use a text index or Atlas Search for real search.
-- Index with the **ESR rule** (Equality → Sort → Range). Measured: **107.6 ms / 500,000 docs examined** without an index vs **1.5 ms / 20 docs** with `{ isDeleted: 1, category: 1, price: -1 }`.
-
-::: text 🧒 In simple words
-Filtering and sorting is like asking a **librarian**: "show me only cookbooks, between $10 and $50, most expensive first". A good librarian only accepts questions from a **printed form** (allow-list), so nobody can sneak in "and also unlock the staff room" (injection). And a smart library keeps **index cards sorted exactly the way people usually ask** (by section, then price), so the librarian can walk straight to the right shelf instead of checking every book in the building.
-:::
-
-::: text 📖 Detailed answer
-### Query-string conventions
-| Need | Example | MongoDB |
-|---|---|---|
-| Equality | `?category=books` | `{ category: 'books' }` |
-| Range | `?minPrice=10&maxPrice=50` | `{ price: { $gte: 10, $lte: 50 } }` |
-| Multiple values | `?status=active,pending` | `{ status: { $in: [...] } }` |
-| Boolean | `?inStock=true` | `{ inStock: true }` |
-| Search | `?q=phone` | escaped `$regex` / `$text` |
-| Sort | `?sort=-price,name` | `{ price: -1, name: 1, _id: -1 }` |
-| Fields | `?fields=name,price` | `.select('name price')` |
-
-### Security
-`Model.find(req.query)` (or a JSON body passed straight into a query) lets a client send **operators**. With Express 4's default `qs` parser, `?password[$ne]=x` becomes `{ password: { $ne: 'x' } }` and matches every user; Express 5 defaults to the simple parser (nested keys stay plain strings), but a JSON body like `{"email": {"$ne": ""}}` still carries operators. Always:
-- pick only **known** fields,
-- **cast** values (`String()`, `Number()`, booleans from `'true'`),
-- **escape** regex input (`a.c` should match a literal dot, and `(a+)+` shouldn't cause catastrophic backtracking).
-
-### Performance: the ESR rule for compound indexes
-Put **E**quality fields first, then the **S**ort field, then **R**ange fields. For "category = books, price between 100 and 200, sorted by price desc":
-| Setup | Time | Docs examined |
-|---|---|---|
-| No index (COLLSCAN + in-memory SORT) | **107.6 ms** | 500,000 |
-| `{ isDeleted: 1, category: 1, price: -1 }` | **1.5 ms** | 20 |
-
-(Measured on MongoDB 7 with 500,000 products, `limit(20)`, median of 5 runs.)
-:::
-
-::: diagram Query string to safe MongoDB query
-flowchart LR
-  Q["?category=books&minPrice=10&sort=-price&q=c++"] --> P["parse + allow-list fields"]
-  P --> C["cast: String, Number, Boolean"]
-  C --> X["escape regex input"]
-  X --> F["filter: category, price range, name regex"]
-  P --> S["sort: allowed fields + _id tie-breaker"]
-  F --> DB[("MongoDB: ESR index category, price")]
-  S --> DB
-:::
-
-::: chart bar Measured: products query with and without an ESR index (500k docs, ms)
-Setup,Query time (ms)
-No index (COLLSCAN + SORT),107.6
-ESR index,1.5
-:::
-
-::: image The librarian's form: only allowed questions, cast to the right types, answered from a matching index
-/images/express/filter-sort.svg
-:::
-
-::: text 🪜 Step by step
-`GET /products?category=books&minPrice=10&maxPrice=50&sort=-price&q=c%2B%2B&password[$ne]=x`:
-1. Express parses the query string (Express 4's `qs` parser would even turn `password[$ne]=x` into an object `{ $ne: 'x' }`).
-2. `buildProductQuery` ignores `password` entirely (not in the allow-list), whatever shape it has.
-3. `category` → `String('books')`; `minPrice`/`maxPrice` → numbers; NaN values are skipped.
-4. `q = 'c++'` is escaped to `c\+\+` before going into `$regex` (otherwise `+` means "one or more").
-5. `sort=-price` → `{ price: -1 }`; `_id: -1` is added as a tie-breaker; unknown sort fields are dropped.
-6. MongoDB uses the `{ isDeleted, category, price }` index: equality on the first two, ordered by price, range on price → reads only what it returns.
-:::
-
-::: code javascript Safe filter + sort + pagination with Mongoose (node products.js)
-// How to run: npm install express mongoose && MONGO_URI=mongodb://localhost:27017/shop node products.js
-// Then: curl "localhost:3000/products?category=books&minPrice=10&maxPrice=50&sort=-price&q=node"
-const express = require('express');
-const mongoose = require('mongoose');
-
-const productSchema = new mongoose.Schema({
-  name: String, category: String, price: Number, tags: [String], inStock: Boolean, isDeleted: { type: Boolean, default: false },
-});
-productSchema.index({ isDeleted: 1, category: 1, price: -1 });          // ESR: equality, equality, sort/range
-const Product = mongoose.model('Product', productSchema);
-
-const escapeRegex = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-const SORTABLE = ['price', 'name', 'createdAt'];
-
-function buildProductQuery(query) {
-  const filter = { isDeleted: false };
-  if (typeof query.category === 'string') filter.category = query.category;
-  if (typeof query.tags === 'string') filter.tags = { $all: query.tags.split(',').slice(0, 10) };
-  if (query.inStock === 'true' || query.inStock === 'false') filter.inStock = query.inStock === 'true';
-  const min = Number(query.minPrice);
-  const max = Number(query.maxPrice);
-  if (Number.isFinite(min) || Number.isFinite(max)) {
-    filter.price = {};
-    if (Number.isFinite(min)) filter.price.$gte = min;
-    if (Number.isFinite(max)) filter.price.$lte = max;
-  }
-  if (typeof query.q === 'string' && query.q.trim()) filter.name = { $regex: escapeRegex(query.q.trim().slice(0, 50)), $options: 'i' };
-
-  const sort = {};
-  String(query.sort || '-price').split(',').forEach((token) => {
-    const field = token.replace(/^-/, '');
-    if (SORTABLE.includes(field)) sort[field] = token.startsWith('-') ? -1 : 1;
-  });
-  sort._id = -1;                                                         // stable order between pages
-  return { filter, sort };
-}
-
-const app = express();
-app.get('/products', async (req, res) => {
-  const { filter, sort } = buildProductQuery(req.query);
-  const page = Math.max(1, Number.parseInt(req.query.page, 10) || 1);
-  const limit = Math.min(100, Math.max(1, Number.parseInt(req.query.limit, 10) || 20));
-  const [data, total] = await Promise.all([
-    Product.find(filter).sort(sort).skip((page - 1) * limit).limit(limit).select('name category price inStock').lean(),
-    Product.countDocuments(filter),
-  ]);
-  res.json({ data, pagination: { page, limit, total }, appliedFilter: filter });
-});
-
-async function main() {
-  await mongoose.connect(process.env.MONGO_URI || 'mongodb://localhost:27017/shop');
-  if ((await Product.estimatedDocumentCount()) === 0) {
-    const cats = ['books', 'shoes', 'phones'];
-    await Product.insertMany(Array.from({ length: 60 }, (_, i) => ({
-      name: i % 7 === 0 ? `Node.js Guide ${i}` : `Item ${i}`, category: cats[i % 3], price: 5 + (i * 37) % 95, tags: i % 2 ? ['new'] : ['sale'], inStock: i % 4 !== 0,
-    })));
-    console.log('seeded 60 products');
-  }
-  const PORT = Number(process.env.PORT) || 3000;
-  app.listen(PORT, () => console.log(`http://localhost:${PORT}`));
-}
-main().catch((err) => { console.error(err); process.exit(1); });
-:::
-
-::: code javascript Browser demo: query string → safe filter, with injection attempts (runnable)
-const escapeRegex = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-const SORTABLE = ['price', 'name'];
-
-function build(qs) {
-  const q = Object.fromEntries(new URLSearchParams(qs));
-  const filter = {};
-  if (q.category) filter.category = String(q.category);
-  const min = Number(q.minPrice), max = Number(q.maxPrice);
-  if (Number.isFinite(min) || Number.isFinite(max)) filter.price = { ...(Number.isFinite(min) && { $gte: min }), ...(Number.isFinite(max) && { $lte: max }) };
-  if (q.q) filter.name = { $regex: escapeRegex(q.q) };
-  const sort = {};
-  (q.sort || '-price').split(',').forEach((t) => { const f = t.replace(/^-/, ''); if (SORTABLE.includes(f)) sort[f] = t.startsWith('-') ? -1 : 1; });
-  sort._id = -1;
-  return { filter, sort };
-}
-
-// "+" in a query string means a SPACE, so the client must encode it: encodeURIComponent('c++') === 'c%2B%2B'
-console.log('raw q=c++ decodes to', JSON.stringify(new URLSearchParams('q=c++').get('q')), new URLSearchParams('q=c++').get('q') === 'c  ' ? '✅' : '❌ FAIL');
-const a = build(`category=books&minPrice=10&maxPrice=50&sort=-price,name&q=${encodeURIComponent('c++')}`);
-console.log(JSON.stringify(a));
-console.log('range cast to numbers', a.filter.price.$gte === 10 && a.filter.price.$lte === 50 ? '✅' : '❌ FAIL');
-console.log('regex input escaped →', a.filter.name.$regex, a.filter.name.$regex === 'c\\+\\+' ? '✅' : '❌ FAIL');
-console.log('sort with tie-breaker', JSON.stringify(a.sort) === '{"price":-1,"name":1,"_id":-1}' ? '✅' : '❌ FAIL');
-const b = build('password[$ne]=x&sort=secretField&minPrice=abc');
-console.log('unknown fields and operators ignored →', JSON.stringify(b.filter), JSON.stringify(b.filter) === '{}' ? '✅' : '❌ FAIL');
-console.log('unknown sort field dropped', JSON.stringify(b.sort) === '{"_id":-1}' ? '✅' : '❌ FAIL');
-:::
-
-::: warning ⚠️ Common mistakes
-- `Model.find(req.query)` or spreading `req.query` into a filter → NoSQL injection.
-- Unescaped `$regex` from user input (wrong matches, ReDoS) or regex search on huge collections without an index.
-- Sorting by any field the client names (no index → in-memory sort, 100 MB limit errors).
-- Indexes in the wrong order (range before sort) → MongoDB can't use the index for sorting.
-- Filters only in React state → links can't be shared and Back loses them (put them in the URL).
-- Building query strings by hand: `+` means a space and `&` splits parameters, so always use `URLSearchParams`/`encodeURIComponent` on the client.
-:::
-
-::: understand
-- The API should express **what** the client may ask; the allow-list is that contract.
-- Index design follows real query shapes; check with `explain('executionStats')`: compare `totalDocsExamined` to returned docs.
-- Search beyond simple prefixes belongs in a search engine (Atlas Search, OpenSearch, Algolia).
-:::
-
-::: ask
-- *"Which fields can be filtered and sorted? Which combinations are common?"* (drives indexes).
-- *"Prefix search or full-text with typo tolerance?"* → regex vs text index vs search engine.
-- *"Should filters live in the URL?"* (shareable, back button).
-:::
-
-::: important ⭐ Say this in the interview
-"I map query parameters to a MongoDB filter through an allow-list: only known fields, cast to the right type, ranges like minPrice and maxPrice become $gte and $lte, and search text is escaped before it goes into a regex. I never pass req.query directly to find, because an operator like password[$ne] would turn into a NoSQL injection. Sorting accepts only allowed fields, maps a leading minus to descending and adds _id as a tie-breaker. Then I create compound indexes following the equality, sort, range rule; in a test with 500,000 products, the right index took a filtered, sorted query from about 108 milliseconds and half a million documents examined down to 1.5 milliseconds and 20 documents."
-:::
-
-::: links
-MongoDB: The ESR (Equality, Sort, Range) rule | https://www.mongodb.com/docs/manual/tutorial/equality-sort-range-rule/
-OWASP: NoSQL injection testing | https://owasp.org/www-project-web-security-testing-guide/latest/4-Web_Application_Security_Testing/07-Input_Validation_Testing/05.6-Testing_for_NoSQL_Injection
-MongoDB: explain results | https://www.mongodb.com/docs/manual/reference/explain-results/
-:::
-
-=== How do you handle API errors consistently?
-@p 2
-@tags errors, api-design
-@quick
-- One **error shape** for every failure, e.g. `{ error: { code, message, details?, requestId } }` (or RFC 9457 `application/problem+json`).
-- Correct **status codes**: 400 / 401 / 403 / 404 / 409 / 422 / 429 / 500 / 503.
-- Error **classes** (`NotFoundError`, `ConflictError`…) thrown anywhere → **one** error middleware formats them.
-- Stable machine-readable `code` for the frontend (and translations); human `message` for people.
-- Log 5xx with a **request id** and return that id to the client; never expose stack traces or DB messages.
-
-::: text 🧒 In simple words
-Imagine an airline where every desk reports problems differently: one writes "ERR!!", another says "sorry, can't", a third shows you an internal computer screen. Confusing! A good airline uses **one standard form** for every problem: a short code ("FLIGHT_FULL"), a clear sentence, the details, and a reference number you can quote to customer service. Consistent API errors are that standard form: the frontend can handle every failure in one place, and support can find the exact log line from the reference number.
-:::
-
-::: text 📖 Detailed answer
-### Why consistency matters
-- The frontend can handle errors **in one interceptor** (show field errors, redirect to login, retry later).
-- Error **codes** stay stable even if messages change or are translated.
-- A **request id** links what the user saw to the server logs.
-
-### Recommended body
-| Field | Example | Purpose |
-|---|---|---|
-| `code` | `"USER_NOT_FOUND"` | Stable, machine-readable |
-| `message` | `"User not found"` | Human-readable summary |
-| `details` | `[{ "field": "email", "message": "Invalid email" }]` | Field errors / extra context |
-| `requestId` | `"8f1c…"` | Correlate with logs |
-
-(RFC 9457 "Problem Details" is the standard alternative: `type`, `title`, `status`, `detail`, `instance` with `Content-Type: application/problem+json`.)
-
-### Status-code cheat sheet
-| Status | Use for |
-|---|---|
-| 400 | Malformed or invalid input |
-| 401 | Not authenticated (missing/invalid/expired token) |
-| 403 | Authenticated but not allowed |
-| 404 | Resource doesn't exist (or is hidden from this user) |
-| 409 | Conflict: duplicate, version mismatch |
-| 422 | Well-formed but semantically invalid (some teams use instead of 400) |
-| 429 | Rate limited (send `Retry-After`) |
-| 500 | Unexpected server bug |
-| 503 | Dependency down / maintenance (send `Retry-After`) |
-:::
-
-::: diagram One error contract from server to UI
-flowchart LR
-  T["throw NotFoundError / ConflictError / ValidationError"] --> EH["error middleware"]
-  U["unknown error (bug)"] --> EH
-  EH -->|"log 5xx with requestId"| L[("logs / Sentry")]
-  EH -->|"status + code + message + requestId"| C["client"]
-  C --> I["one interceptor: field errors, 401 → login, 429/503 → retry"]
-:::
-
-::: image One standard form for every problem: code, message, details and a reference number
-/images/express/api-errors.svg
-:::
-
-::: text 🪜 Step by step
-`POST /api/users` with an email that already exists:
-1. The service checks the repository and throws `new ConflictError('Email already registered')` (status 409, code `EMAIL_TAKEN`).
-2. Express 5 forwards the rejected promise to the error middleware.
-3. The middleware sees an `AppError` subclass → uses its status, code and message; no stack logging for a 4xx.
-4. It adds the request id from the `requestId` middleware and responds `409 { error: { code, message, requestId } }`.
-5. On the frontend, the API client turns the response into a typed error; the form shows "Email already registered" under the email field.
-6. For a bug (`TypeError`), the middleware logs the stack with the same request id and returns `500 INTERNAL_ERROR` with a generic message.
-:::
-
-::: code javascript Error classes + middleware + a client that understands them (node api-errors.js)
-// How to run: npm install express && node api-errors.js
-// Then: curl -i -X POST localhost:3000/api/users -H 'Content-Type: application/json' -d '{"email":"taken@x.com"}'
-const express = require('express');
-const crypto = require('crypto');
-
-// ---------- error classes ----------
-class AppError extends Error {
-  constructor(status, code, message, details) { super(message); Object.assign(this, { status, code, details }); }
-}
-class ValidationError extends AppError { constructor(details) { super(400, 'VALIDATION_ERROR', 'Validation failed', details); } }
-class UnauthorizedError extends AppError { constructor(message = 'Authentication required') { super(401, 'UNAUTHORIZED', message); } }
-class ForbiddenError extends AppError { constructor() { super(403, 'FORBIDDEN', 'You do not have permission'); } }
-class NotFoundError extends AppError { constructor(what = 'Resource') { super(404, `${what.toUpperCase()}_NOT_FOUND`, `${what} not found`); } }
-class ConflictError extends AppError { constructor(code, message) { super(409, code, message); } }
-
-// ---------- app ----------
-const app = express();
-app.use(express.json());
-app.use((req, res, next) => { req.id = req.get('x-request-id') || crypto.randomUUID(); res.set('X-Request-Id', req.id); next(); });
-
-const emails = new Set(['taken@x.com']);
-app.post('/api/users', (req, res) => {
-  const email = String(req.body?.email || '').toLowerCase();
-  if (!email.includes('@')) throw new ValidationError([{ field: 'email', message: 'Invalid email' }]);
-  if (emails.has(email)) throw new ConflictError('EMAIL_TAKEN', 'Email already registered');
-  emails.add(email);
-  res.status(201).json({ data: { email } });
-});
-app.get('/api/users/:id', () => { throw new NotFoundError('User'); });
-app.get('/api/admin', () => { throw new ForbiddenError(); });
-app.get('/api/me', () => { throw new UnauthorizedError(); });
-app.get('/api/bug', () => JSON.parse('{oops'));                  // a real bug → 500
-
-app.use((req, res, next) => next(new NotFoundError('Route')));
-// eslint-disable-next-line no-unused-vars
-app.use((err, req, res, next) => {
-  const known = err instanceof AppError;
-  if (!known) console.error(`[${req.id}]`, err);
-  res.status(known ? err.status : 500).json({
-    error: {
-      code: known ? err.code : 'INTERNAL_ERROR',
-      message: known ? err.message : 'Something went wrong',
-      ...(known && err.details ? { details: err.details } : {}),
-      requestId: req.id,
-    },
-  });
-});
-
-const PORT = Number(process.env.PORT) || 3000;
-app.listen(PORT, () => console.log(`http://localhost:${PORT}`));
-:::
-
-::: code javascript Browser demo: one client-side handler for every API error (runnable)
-// What a frontend API client does with a consistent error contract.
-class ApiError extends Error {
-  constructor(status, body) {
-    super(body?.error?.message || 'Network error');
-    this.status = status;
-    this.code = body?.error?.code || 'NETWORK_ERROR';
-    this.details = body?.error?.details || [];
-    this.requestId = body?.error?.requestId;
-  }
-}
-function decideUiAction(err) {
-  if (err.status === 401) return 'redirect-to-login';
-  if (err.status === 403) return 'show-permission-message';
-  if (err.status === 400 || err.status === 422) return `field-errors:${err.details.map((d) => d.field).join(',')}`;
-  if (err.status === 409) return `inline:${err.message}`;
-  if (err.status === 429 || err.status === 503) return 'retry-later';
-  return `toast:Something went wrong (ref ${err.requestId})`;
-}
-
-const cases = [
-  [401, { error: { code: 'UNAUTHORIZED', message: 'Authentication required' } }, 'redirect-to-login'],
-  [400, { error: { code: 'VALIDATION_ERROR', message: 'Validation failed', details: [{ field: 'email' }, { field: 'name' }] } }, 'field-errors:email,name'],
-  [409, { error: { code: 'EMAIL_TAKEN', message: 'Email already registered' } }, 'inline:Email already registered'],
-  [503, { error: { code: 'DB_UNAVAILABLE', message: 'Try again' } }, 'retry-later'],
-  [500, { error: { code: 'INTERNAL_ERROR', message: 'Something went wrong', requestId: 'abc-123' } }, 'toast:Something went wrong (ref abc-123)'],
-];
-for (const [status, body, expected] of cases) {
-  const action = decideUiAction(new ApiError(status, body));
-  console.log(`${status} ${body.error.code} → ${action}`, action === expected ? '✅' : '❌ FAIL');
-}
-:::
-
-::: warning ⚠️ Common mistakes
-- Different shapes per route (`{ msg }`, `{ error }`, plain text) → frontend special cases everywhere.
-- `200 OK` with `{ success: false }` → caches, monitoring and clients all think it worked.
-- Leaking stack traces, SQL/Mongo messages or internal hostnames in production.
-- Changing error `code` strings casually (they're part of the API contract).
-- No request id → impossible to connect a user's screenshot to the server log.
-:::
-
-::: understand
-- Errors are part of the **API contract**, just like successful responses; document them (OpenAPI).
-- Classes + one middleware = **one place** to change formatting, logging and mapping.
-- Consistency on the server enables **one interceptor** on the client.
-:::
-
-::: ask
-- *"Is there an existing error standard (RFC 9457, company style guide)?"*
-- *"Do messages need translating?"* → frontend maps `code` to translated text.
-- *"Which errors should alert someone?"* Usually 5xx and unusual 4xx spikes, not every 404.
-:::
-
-::: important ⭐ Say this in the interview
-"Every error the API returns has the same shape: a correct HTTP status plus a body with a stable machine-readable code, a human message, optional field details and a request id. In code, services throw error classes like NotFoundError or ConflictError, and a single error middleware turns them into that shape, logs unexpected 5xx errors with the request id and stack, and hides internals in production. Because the contract is consistent, the frontend handles errors in one interceptor: 401 goes to login, validation errors map to fields, 429 or 503 retry later, and anything else shows a message with the reference id support can look up."
-:::
-
-::: links
-RFC 9457: Problem Details for HTTP APIs | https://www.rfc-editor.org/rfc/rfc9457.html
-MDN: HTTP response status codes | https://developer.mozilla.org/en-US/docs/Web/HTTP/Status
-Express: Error handling | https://expressjs.com/en/guide/error-handling.html
-:::
-
 === How do you version APIs?
 @p 2
 @tags versioning, api-design
@@ -2394,351 +2741,4 @@ console.log('Sunset header value →', sunset, sunset === 'Thu, 31 Dec 2026 23:5
 RFC 8594: The Sunset HTTP header | https://www.rfc-editor.org/rfc/rfc8594.html
 RFC 9745: The Deprecation HTTP header | https://www.rfc-editor.org/rfc/rfc9745.html
 Microsoft REST API guidelines: versioning | https://github.com/microsoft/api-guidelines/blob/vNext/azure/Guidelines.md#api-versioning
-:::
-
-=== Difference between application-level and router-level middleware
-@p 2
-@tags middleware, router
-@quick
-- **Application-level**: bound to `app` with `app.use()` / `app.METHOD()`; runs for every request (or a path prefix).
-- **Router-level**: bound to an `express.Router()` instance with `router.use()`; runs only for requests that enter that router.
-- A Router is a **mini-app** with its own middleware and routes → modular features: `app.use('/api/admin', adminRouter)`.
-- Use app-level for cross-cutting concerns (helmet, CORS, JSON parsing, logging, errors); router-level for feature concerns (admin auth, module validation).
-- `express.Router({ mergeParams: true })` lets nested routers read parent params like `:userId`.
-
-::: text 🧒 In simple words
-A shopping mall has **security at the main entrance** (application-level): everyone passes through it. Inside, some shops have **their own door staff** (router-level): the jewellery store checks bags, the cinema checks tickets, but only for people going into that shop. Express works the same way: `app.use` is the mall entrance, a `Router` is a shop with its own rules, and you mount each shop at an address (`/api/admin`).
-:::
-
-::: text 📖 Detailed answer
-Both are the same kind of function `(req, res, next)`; the difference is **where they're attached** and therefore their **scope**.
-
-| | Application-level | Router-level |
-|---|---|---|
-| Attached to | `app` (the Express instance) | an `express.Router()` instance |
-| Registered with | `app.use(fn)`, `app.use('/path', fn)`, `app.get(...)` | `router.use(fn)`, `router.get(...)` |
-| Runs for | Every request (or every request under a prefix) | Only requests routed into that router |
-| Typical use | `helmet`, `cors`, `express.json`, request id, logging, global rate limit, 404, error handler | Auth for `/admin`, per-module validation, module logging, nested resources |
-
-### Routers as mini-apps
-- Each feature exports a router (`users.routes.js`, `orders.routes.js`) with its own middleware.
-- `app.use('/api/users', usersRouter)` mounts it; inside, paths are **relative** (`router.get('/:id')`).
-- Routers can be nested (`/api/users/:userId/orders`); use `mergeParams: true` to read `req.params.userId` in the child.
-
-### Common pattern: protect everything except a few routes
-Mount the **public** router first (`/api/auth`), then a router-level `authenticate` on the protected routers, so login and register stay public.
-:::
-
-::: diagram Mall entrance vs shop doors
-flowchart TD
-  R(["request"]) --> A["app.use: helmet, cors, json, logger (everyone)"]
-  A --> P{"path?"}
-  P -->|"/api/products"| PUB["publicRouter: no auth"]
-  P -->|"/api/admin"| ADM["adminRouter.use: authenticate + requireAdmin"]
-  P -->|"/api/users/:userId/orders"| ORD["ordersRouter (mergeParams)"]
-  ADM --> AR["admin routes"]
-:::
-
-::: image The mall entrance (app-level) checks everyone; each shop (router) has its own door staff
-/images/express/app-vs-router.svg
-:::
-
-::: text 🪜 Step by step
-`DELETE /api/admin/users/9` with a non-admin token, using the code below:
-1. App-level `express.json()` and the logger run (they run for everyone).
-2. The request doesn't match `/api/products` (public router), but matches the `/api/admin` mount.
-3. Inside `adminRouter`, the router-level `authenticate` reads the token → `req.user = { role: 'user' }` → `next()`.
-4. Router-level `requireAdmin` sees `role !== 'admin'` → responds **403**; the route handler never runs.
-5. A request to `/api/products` never touches `authenticate` or `requireAdmin` at all.
-6. `GET /api/users/5/orders` enters `ordersRouter`; thanks to `mergeParams`, it can read `req.params.userId === '5'`.
-:::
-
-::: code javascript App-level vs router-level, nested routers (node routers.js)
-// How to run: npm install express && node routers.js
-// Then: curl localhost:3000/api/products
-//       curl -i -X DELETE localhost:3000/api/admin/users/9 -H "x-token: user-token"
-//       curl -i -X DELETE localhost:3000/api/admin/users/9 -H "x-token: admin-token"
-//       curl localhost:3000/api/users/5/orders
-const express = require('express');
-const app = express();
-
-// ---------- application-level: everyone passes here ----------
-app.use(express.json());
-app.use((req, res, next) => { console.log(`[app] ${req.method} ${req.originalUrl}`); next(); });
-
-// ---------- router-level: only for routes inside each router ----------
-const tokens = { 'user-token': { id: 1, role: 'user' }, 'admin-token': { id: 2, role: 'admin' } };
-const authenticate = (req, res, next) => {
-  req.user = tokens[req.get('x-token')];
-  return req.user ? next() : res.status(401).json({ error: 'AUTH_REQUIRED' });
-};
-const requireAdmin = (req, res, next) => (req.user.role === 'admin' ? next() : res.status(403).json({ error: 'FORBIDDEN' }));
-
-const publicRouter = express.Router();
-publicRouter.get('/products', (req, res) => res.json([{ id: 1, name: 'Mug' }]));
-
-const adminRouter = express.Router();
-adminRouter.use(authenticate, requireAdmin);                 // only for /api/admin/*
-adminRouter.get('/stats', (req, res) => res.json({ users: 2 }));
-adminRouter.delete('/users/:id', (req, res) => res.json({ deleted: Number(req.params.id) }));
-
-const ordersRouter = express.Router({ mergeParams: true });  // can read :userId from the parent path
-ordersRouter.get('/', (req, res) => res.json({ userId: req.params.userId, orders: ['o-1', 'o-2'] }));
-
-app.use('/api', publicRouter);
-app.use('/api/admin', adminRouter);
-app.use('/api/users/:userId/orders', ordersRouter);
-
-const PORT = Number(process.env.PORT) || 3000;
-app.listen(PORT, () => console.log(`http://localhost:${PORT}`));
-:::
-
-::: code javascript Browser demo: which middleware runs for which path? (runnable)
-// Model the stack: app-level entries apply to everything, router entries only under their mount path.
-const stack = [
-  { scope: 'app', mount: '/', name: 'json' },
-  { scope: 'app', mount: '/', name: 'logger' },
-  { scope: 'router', mount: '/api/admin', name: 'authenticate' },
-  { scope: 'router', mount: '/api/admin', name: 'requireAdmin' },
-  { scope: 'router', mount: '/api/users/:userId/orders', name: 'ordersRoutes' },
-];
-const matches = (mount, path) => {
-  const pattern = new RegExp(`^${mount.replace(/:[^/]+/g, '[^/]+')}(/|$)`);
-  return mount === '/' || pattern.test(path);
-};
-const runFor = (path) => stack.filter((m) => matches(m.mount, path)).map((m) => m.name);
-
-const products = runFor('/api/products');
-const admin = runFor('/api/admin/users/9');
-const orders = runFor('/api/users/5/orders');
-console.log('/api/products →', products.join(' > '), products.join() === 'json,logger' ? '✅' : '❌ FAIL');
-console.log('/api/admin/users/9 →', admin.join(' > '), admin.join() === 'json,logger,authenticate,requireAdmin' ? '✅' : '❌ FAIL');
-console.log('/api/users/5/orders →', orders.join(' > '), orders.includes('ordersRoutes') && !orders.includes('authenticate') ? '✅' : '❌ FAIL');
-:::
-
-::: warning ⚠️ Common mistakes
-- Putting `authenticate` at app level **before** the login route → nobody can log in.
-- Forgetting `mergeParams: true` in nested routers → `req.params.userId` is `undefined`.
-- Registering the same middleware at app and router level → it runs twice.
-- Mounting the 404 handler before routers.
-- Using absolute paths inside a router (`router.get('/api/admin/stats')`) when it's mounted at `/api/admin`.
-:::
-
-::: understand
-- Router-level middleware is how you keep **feature rules next to the feature** instead of one giant `app.js`.
-- Scope is decided by **where you mount**, not by the middleware itself.
-- The same function can be reused at either level (`authenticate` globally or per router).
-:::
-
-::: ask
-- *"How would you apply auth to everything except login and register?"* → mount the public auth router first, then protect routers with router-level `authenticate`.
-- *"Do nested resources need parent params?"* → `mergeParams`.
-- Trap: order still matters inside each router.
-:::
-
-::: important ⭐ Say this in the interview
-"Both are normal middleware functions; the difference is scope. Application-level middleware is attached to the app with app.use or app.METHOD and runs for every request, or every request under a path prefix, so I use it for cross-cutting things like helmet, CORS, JSON parsing, request ids, logging, the 404 and the error handler. Router-level middleware is attached to an express.Router and only runs for requests that enter that router, which is perfect for feature rules like admin authentication. Routers act as mini-apps I mount at a prefix; for nested resources like users/:userId/orders I use mergeParams so the child router can read the parent's parameters."
-:::
-
-::: links
-Express: Router API | https://expressjs.com/en/5x/api.html#router
-Express: Using middleware (router-level) | https://expressjs.com/en/guide/using-middleware.html#middleware.router
-:::
-
-=== What is Express.js?
-@p 2
-@tags express, basics
-@quick
-- Express is a **minimal, unopinionated web framework** on top of Node's `http` module: routing, middleware, request/response helpers.
-- Current major version: **Express 5** (`npm install express` installs 5.x): async errors forwarded, stricter path syntax, Node 18+.
-- It gives you building blocks, not an architecture: you choose structure, validation, ORM, auth.
-- Measured hello-world JSON throughput (one process): Node `http` ~55k req/s, Fastify ~50k, Express 4 ~19.5k, **Express 5 ~17.5k**; real apps are usually DB-bound, not framework-bound.
-- Alternatives: **Fastify** (speed, JSON-schema validation), **NestJS** (structure, DI, TypeScript), Koa, Hono.
-
-::: text 🧒 In simple words
-Node's `http` module is like a **bare kitchen**: a stove and a sink. You can cook anything, but you have to build every shelf and system yourself. Express is a **set of practical kitchen tools**: a recipe book that matches orders to dishes (routing), a conveyor belt of prep stations (middleware) and handy utensils (`res.json`, `req.params`). It doesn't force a cooking style on you, which is great for flexibility but means the team must agree on how to organise the kitchen.
-:::
-
-::: text 📖 Detailed answer
-**Express** is the most widely used Node.js web framework. It wraps the low-level `http` server and adds:
-| Feature | What you get |
-|---|---|
-| **Routing** | `app.get('/users/:id', handler)`, route params, query parsing, routers |
-| **Middleware pipeline** | Compose cross-cutting concerns (auth, logging, validation) |
-| **Request/response helpers** | `req.params`, `req.query`, `req.get()`, `res.status().json()`, `res.cookie()`, `res.redirect()` |
-| **Static files** | `express.static('public')` |
-| **Ecosystem** | helmet, cors, multer, passport, express-rate-limit, morgan… |
-
-### Express 5 (current) vs Express 4
-| | Express 4 | Express 5 |
-|---|---|---|
-| Rejected promise in a handler | Request hangs unless you call `next(err)` | Forwarded to error middleware automatically |
-| Wildcard routes | `app.get('*')` | Named wildcards: `app.get('/*splat')` |
-| `req.query` | Writable, `qs` parser by default | Read-only getter, simple parser by default |
-| Removed | — | `req.param()`, `res.sendfile()` (use `sendFile`), `app.del()`… |
-| Node.js | 0.10+ | **18+** |
-
-### Measured throughput (hello-world JSON, 50 connections, one process, Node 22)
-| Server | Requests/s |
-|---|---|
-| Node `http` | ~55,000 |
-| Fastify 5 | ~50,000 |
-| Express 4 | ~19,500 |
-| Express 5 | ~17,500 |
-
-These numbers matter for tiny endpoints; most real APIs spend their time in the database and network, so team familiarity and ecosystem often matter more.
-
-### When to choose what
-| Framework | Pick it when |
-|---|---|
-| **Express** | You want the biggest ecosystem and maximum flexibility |
-| **Fastify** | You want high throughput and built-in schema validation/serialization |
-| **NestJS** | A large team wants enforced structure, DI, decorators, TypeScript-first |
-:::
-
-::: diagram What Express adds on top of Node's http module
-flowchart TB
-  HTTP["Node http.createServer: raw req, res"] --> EXP["Express app"]
-  EXP --> RT["Router: method + path → handlers, params"]
-  EXP --> MW["Middleware pipeline: json, cors, auth, logging"]
-  EXP --> HL["Helpers: res.json, res.status, req.params, req.query"]
-  EXP --> ER["Error handling: next(err), 4-arg middleware"]
-  RT --> YOU["Your handlers and services"]
-:::
-
-::: chart bar Measured: hello-world JSON throughput, one process (requests/second)
-Server,Requests per second
-Node http,55000
-Fastify 5,50000
-Express 4,19500
-Express 5,17500
-:::
-
-::: image Bare kitchen vs a set of tools: Express adds routing, middleware and helpers to Node's http server
-/images/express/what-is-express.svg
-:::
-
-::: text 🪜 Step by step
-What happens with `POST /api/todos` and body `{"title":"Learn Express"}` in the API below:
-1. Node's `http` server receives the request and hands it to the Express app function.
-2. `express.json()` (app-level middleware) reads the body stream and sets `req.body = { title: 'Learn Express' }`.
-3. The router matches `POST /api/todos` and runs the handler.
-4. The handler validates the title, creates the todo, and calls `res.status(201).location(...).json(todo)`.
-5. `res.json` serialises the object, sets `Content-Type: application/json` and ends the response.
-6. Unknown routes fall through to the 404 handler; thrown errors go to the error middleware.
-:::
-
-::: code javascript A complete small REST API in Express 5 (node todos.js)
-// How to run: npm install express && node todos.js
-// Then: curl -s -X POST localhost:3000/api/todos -H 'Content-Type: application/json' -d '{"title":"Learn Express"}'
-//       curl -s localhost:3000/api/todos     curl -s -X PATCH localhost:3000/api/todos/1 -H 'Content-Type: application/json' -d '{"done":true}'
-const express = require('express');
-
-const app = express();
-app.use(express.json());
-
-let nextId = 1;
-const todos = new Map();
-
-const findTodo = (req, res) => {
-  const todo = todos.get(Number(req.params.id));
-  if (!todo) res.status(404).json({ error: 'Todo not found' });
-  return todo;
-};
-
-app.get('/api/todos', (req, res) => res.json([...todos.values()]));
-
-app.get('/api/todos/:id', (req, res) => {
-  const todo = findTodo(req, res);
-  if (todo) res.json(todo);
-});
-
-app.post('/api/todos', (req, res) => {
-  const title = typeof req.body?.title === 'string' ? req.body.title.trim() : '';
-  if (!title) return res.status(400).json({ error: 'title is required' });
-  const todo = { id: nextId++, title, done: false };
-  todos.set(todo.id, todo);
-  return res.status(201).location(`/api/todos/${todo.id}`).json(todo);
-});
-
-app.patch('/api/todos/:id', (req, res) => {
-  const todo = findTodo(req, res);
-  if (!todo) return undefined;
-  if (typeof req.body?.done === 'boolean') todo.done = req.body.done;      // only allowed fields
-  if (typeof req.body?.title === 'string' && req.body.title.trim()) todo.title = req.body.title.trim();
-  return res.json(todo);
-});
-
-app.delete('/api/todos/:id', (req, res) => {
-  todos.delete(Number(req.params.id));
-  res.status(204).end();
-});
-
-app.use((req, res) => res.status(404).json({ error: `No route for ${req.method} ${req.originalUrl}` }));
-
-const PORT = Number(process.env.PORT) || 3000;
-app.listen(PORT, () => console.log(`API on http://localhost:${PORT}`));
-:::
-
-::: code javascript Browser demo: the core of a router in 15 lines (runnable)
-// Express's job, simplified: match method + path pattern, extract params, call the handler.
-function createApp() {
-  const routes = [];
-  const add = (method) => (path, handler) => {
-    const keys = [];
-    const regex = new RegExp(`^${path.replace(/:([^/]+)/g, (_, k) => { keys.push(k); return '([^/]+)'; })}$`);
-    routes.push({ method, regex, keys, handler });
-  };
-  return {
-    get: add('GET'), post: add('POST'),
-    handle(method, url) {
-      for (const r of routes) {
-        const m = r.method === method && url.match(r.regex);
-        if (m) return r.handler({ params: Object.fromEntries(r.keys.map((k, i) => [k, m[i + 1]])) });
-      }
-      return { status: 404 };
-    },
-  };
-}
-
-const mini = createApp();
-mini.get('/users/:id', (req) => ({ status: 200, body: `user ${req.params.id}` }));
-mini.get('/users/:id/orders/:orderId', (req) => ({ status: 200, body: `order ${req.params.orderId} of ${req.params.id}` }));
-
-const a = mini.handle('GET', '/users/42');
-const b = mini.handle('GET', '/users/42/orders/7');
-const c = mini.handle('POST', '/users/42');
-console.log(a.body, a.body === 'user 42' ? '✅' : '❌ FAIL');
-console.log(b.body, b.body === 'order 7 of 42' ? '✅' : '❌ FAIL');
-console.log('wrong method → 404', c.status === 404 ? '✅' : '❌ FAIL');
-:::
-
-::: warning ⚠️ Common mistakes
-- Treating Express as an architecture: without agreed structure, apps become one huge `app.js`.
-- Copying Express 4 snippets into Express 5 (`app.get('*')`, writing to `req.query`) and getting errors.
-- Choosing a framework by hello-world benchmarks alone; the DB is usually the bottleneck.
-- Forgetting security basics Express doesn't add by default: `helmet`, rate limiting, body size limits, CORS rules.
-:::
-
-::: understand
-- Express = **routing + middleware + helpers** over Node's `http`; everything else is your choice.
-- Express 5 removes the biggest Express 4 trap (unhandled async errors); know both because many codebases still run 4.
-- Concepts transfer: Nest guards/interceptors and Fastify hooks are middleware with more structure.
-:::
-
-::: ask
-- *"Which framework does the team use, and which Express version?"*
-- *"Is raw throughput a real requirement?"* (e.g. a high-traffic proxy) → Fastify may be worth it.
-- *"Do we want enforced structure for a big team?"* → NestJS.
-:::
-
-::: important ⭐ Say this in the interview
-"Express is a minimal, unopinionated web framework on top of Node's http module. It gives me routing with path parameters, a middleware pipeline for things like JSON parsing, auth and logging, and helpers such as res.json and res.status, plus a huge ecosystem. The current major version is Express 5, which forwards rejected promises from async handlers to the error middleware and has stricter route path syntax. It's not the fastest: in a quick hello-world benchmark Fastify handled roughly two and a half times more requests, but real APIs are usually limited by the database. Because Express doesn't impose structure, I organise apps in layers, add helmet, rate limiting and validation, and would pick NestJS when a large team needs enforced conventions."
-:::
-
-::: links
-Express official site | https://expressjs.com
-Express 5: Migration guide | https://expressjs.com/en/guide/migrating-5.html
-Fastify | https://fastify.dev
-NestJS | https://nestjs.com
 :::

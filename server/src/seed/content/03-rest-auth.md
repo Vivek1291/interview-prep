@@ -997,6 +997,389 @@ IETF draft: The Idempotency-Key HTTP header | https://datatracker.ietf.org/doc/d
 MDN: Idempotent | https://developer.mozilla.org/en-US/docs/Glossary/Idempotent
 :::
 
+=== How do you design a good API response?
+@p 2
+@tags api-design, response
+@quick
+- **Consistent shapes**: success `{ data, meta? }`, list `{ data: [...], pagination }`, error `{ error: { code, message, details?, requestId } }`.
+- Correct **status codes** and useful **headers**: `Location` (201), `ETag` + `Cache-Control`, `RateLimit-*`, `X-Request-Id`.
+- Safe, stable types: ISO-8601 **UTC** dates, ids as strings, **money in minor units** (cents/paise) + currency, enums as documented strings.
+- Return only what clients need through **DTOs** (never `passwordHash`, `__v`, internal flags); optional `fields=` selection.
+- Document it with **OpenAPI** and generate client types from it.
+
+::: text 🧒 In simple words
+A good API response is like a **well-designed receipt**: the total is in the same place every time, amounts are exact (no "about 19.99"), the date is unambiguous, there's a reference number for complaints, and it never prints the store's internal notes. Because every receipt follows the same layout, the customer (the frontend) can read any of them without special instructions.
+:::
+
+::: text 📖 Detailed answer
+### Shapes
+| Case | Example |
+|---|---|
+| Single resource | `{ "data": { "id": "66f1…", "name": "Asha", "createdAt": "2026-09-30T04:00:00.000Z" } }` |
+| List | `{ "data": [ … ], "pagination": { "page": 2, "limit": 20, "total": 523, "hasNextPage": true } }` (or `nextCursor`) |
+| Error | `{ "error": { "code": "VALIDATION_ERROR", "message": "Validation failed", "details": [ { "field": "email", "message": "Invalid email" } ], "requestId": "a1b2…" } }` |
+| No body | `204 No Content` (DELETE) |
+
+### Field conventions
+| Concern | Recommendation | Why |
+|---|---|---|
+| Dates | ISO-8601 in **UTC** (`2026-09-30T04:00:00.000Z`) | No time-zone guessing; sortable |
+| Ids | Strings | 64-bit numbers lose precision in JavaScript |
+| Money | Integer minor units + currency (`{ "amount": 49900, "currency": "INR" }`) | `0.1 + 0.2 !== 0.3` |
+| Enums | Documented strings (`"PAID"`) | Readable, extensible |
+| Booleans | `isActive`, `hasNextPage` | Self-explanatory |
+| Missing vs null | Pick a rule and keep it | Clients handle one case |
+| Casing | camelCase JSON | Matches JavaScript |
+
+### Headers that make responses better
+`Location` on 201 · `ETag` + `Cache-Control` for caching and 304s · `X-Request-Id` for support · `RateLimit-*` · `Content-Type: application/json; charset=utf-8`.
+
+### Envelope or not?
+Some APIs return raw resources and put pagination in headers (GitHub's `Link`). Either is fine; **consistency** is what matters. Document it with **OpenAPI** and generate TypeScript types for the frontend.
+:::
+
+::: diagram From database document to response
+flowchart LR
+  DB[("document: _id, passwordHash, __v, priceRupees float, createdAt Date")] --> DTO["DTO mapper: allow-list fields"]
+  DTO --> T["types: id string, price in paise + currency, ISO UTC dates"]
+  T --> ENV["envelope: data + pagination"]
+  ENV --> H["headers: ETag, Cache-Control, X-Request-Id, Location"]
+  H --> C["client: one parser for every endpoint"]
+:::
+
+::: image A well-designed receipt: same layout every time, exact amounts, clear dates, no internal notes
+/images/rest-auth/api-response.svg
+:::
+
+::: text 🪜 Step by step
+`GET /api/products?page=1&limit=2` in the server below:
+1. The handler loads the page of products and the total.
+2. Each document goes through `toProductDTO`: `_id` → string `id`, price stays in **paise** with a `currency`, `createdAt` → ISO UTC, internal fields (`costPrice`, `__v`) are dropped.
+3. The list is wrapped as `{ data, pagination: { page, limit, total, hasNextPage } }`.
+4. The response gets `X-Request-Id` and, for the single-product endpoint, an `ETag` so `If-None-Match` can return **304**.
+5. `POST /api/products` returns **201** with `Location: /api/products/<id>` and the new DTO.
+6. Every error uses the same `{ error: { code, message, requestId } }` shape.
+:::
+
+::: code javascript Response helpers, DTOs, ETag and consistent errors (node responses.js)
+// How to run: npm install express && node responses.js
+// Then: curl -s "localhost:3000/api/products?page=1&limit=2"   curl -si localhost:3000/api/products/p1 | grep -i etag
+const express = require('express');
+const crypto = require('crypto');
+
+const app = express();
+app.use(express.json());
+app.use((req, res, next) => { req.id = crypto.randomUUID(); res.set('X-Request-Id', req.id); next(); });
+
+// "database" documents: note the internal fields and a raw Date
+const products = [
+  { _id: 'p1', name: 'Mug', pricePaise: 49900, currency: 'INR', costPrice: 120.5, __v: 0, createdAt: new Date('2026-09-01T10:00:00Z') },
+  { _id: 'p2', name: 'Pen', pricePaise: 9900, currency: 'INR', costPrice: 20, __v: 0, createdAt: new Date('2026-09-05T08:30:00Z') },
+  { _id: 'p3', name: 'Lamp', pricePaise: 189900, currency: 'INR', costPrice: 900, __v: 3, createdAt: new Date('2026-09-10T15:45:00Z') },
+];
+
+// DTO: an explicit allow-list of what clients may see, with safe types
+const toProductDTO = (p) => ({
+  id: String(p._id),
+  name: p.name,
+  price: { amount: p.pricePaise, currency: p.currency },          // integer minor units, never floats
+  createdAt: p.createdAt.toISOString(),                            // UTC ISO-8601
+});
+
+const sendError = (res, req, status, code, message, details) =>
+  res.status(status).json({ error: { code, message, ...(details && { details }), requestId: req.id } });
+
+app.get('/api/products', (req, res) => {
+  const page = Math.max(1, Number.parseInt(req.query.page, 10) || 1);
+  const limit = Math.min(100, Math.max(1, Number.parseInt(req.query.limit, 10) || 20));
+  const items = products.slice((page - 1) * limit, page * limit);
+  res.json({ data: items.map(toProductDTO), pagination: { page, limit, total: products.length, hasNextPage: page * limit < products.length } });
+});
+
+app.get('/api/products/:id', (req, res) => {
+  const product = products.find((p) => p._id === req.params.id);
+  if (!product) return sendError(res, req, 404, 'PRODUCT_NOT_FOUND', 'Product not found');
+  const body = { data: toProductDTO(product) };
+  const etag = `"${crypto.createHash('sha1').update(JSON.stringify(body)).digest('base64url')}"`;
+  res.set({ ETag: etag, 'Cache-Control': 'private, max-age=0, must-revalidate' });
+  if (req.get('if-none-match') === etag) return res.status(304).end();
+  return res.json(body);
+});
+
+app.post('/api/products', (req, res) => {
+  const { name, price } = req.body || {};
+  const details = [];
+  if (typeof name !== 'string' || name.trim().length < 2) details.push({ field: 'name', message: 'At least 2 characters' });
+  if (!Number.isInteger(price?.amount) || price.amount < 0) details.push({ field: 'price.amount', message: 'Integer in minor units (paise)' });
+  if (details.length) return sendError(res, req, 400, 'VALIDATION_ERROR', 'Validation failed', details);
+  const doc = { _id: `p${products.length + 1}`, name: name.trim(), pricePaise: price.amount, currency: price.currency || 'INR', costPrice: 0, __v: 0, createdAt: new Date() };
+  products.push(doc);
+  return res.status(201).location(`/api/products/${doc._id}`).json({ data: toProductDTO(doc) });
+});
+
+app.use((req, res) => sendError(res, req, 404, 'NOT_FOUND', `No route for ${req.method} ${req.originalUrl}`));
+
+const PORT = Number(process.env.PORT) || 3000;
+app.listen(PORT, () => console.log(`http://localhost:${PORT}/api/products`));
+:::
+
+::: code javascript Browser demo: why money is integers and ids are strings (runnable)
+const floatTotal = 0.1 + 0.2;
+console.log('0.1 + 0.2 =', floatTotal, floatTotal !== 0.3 ? '✅ floats are inexact' : '❌ FAIL');
+const paiseTotal = 10 + 20;                                        // ₹0.10 + ₹0.20 in paise
+console.log('10 + 20 paise =', paiseTotal, '→ ₹' + (paiseTotal / 100).toFixed(2), paiseTotal === 30 ? '✅' : '❌ FAIL');
+
+const bigId = '9007199254740993';                                  // a 64-bit id (e.g. from Twitter/Snowflake)
+console.log('as a JSON number it becomes', JSON.parse(bigId), String(JSON.parse(bigId)) !== bigId ? '✅ precision lost' : '❌ FAIL');
+console.log('as a string it survives', JSON.parse(`"${bigId}"`) === bigId ? '✅' : '❌ FAIL');
+
+const toDTO = (doc) => ({ id: String(doc._id), name: doc.name, createdAt: new Date(doc.createdAt).toISOString() });
+const dto = toDTO({ _id: 42, name: 'Asha', passwordHash: 'x', __v: 0, createdAt: Date.UTC(2026, 8, 30, 4) });
+console.log('DTO →', JSON.stringify(dto), !('passwordHash' in dto) && dto.createdAt === '2026-09-30T04:00:00.000Z' ? '✅' : '❌ FAIL');
+:::
+
+::: warning ⚠️ Common mistakes
+- Different shapes per endpoint (`users` vs `data` vs raw arrays) → special cases in every client.
+- Returning raw database documents (leaking `passwordHash`, `__v`, internal costs).
+- Floats for money, local-time dates without offsets, numeric 64-bit ids.
+- `200` with `{ success: false }` instead of real status codes.
+- No `Location` on create, no request id on errors, no documentation.
+:::
+
+::: understand
+- The response format is a **contract**; consistency lets the frontend write one API client.
+- DTOs separate the **storage model** from the **public model**, so schema changes don't leak.
+- Small type decisions (money, dates, ids) prevent whole classes of bugs.
+:::
+
+::: ask
+- *"Is there an existing API style guide or envelope?"*
+- *"Do clients need partial responses (`fields=`) or embedded related data (`include=`)?"*
+- *"Should we generate clients from OpenAPI?"*
+:::
+
+::: important ⭐ Say this in the interview
+"I keep response shapes consistent: a data field for single resources, data plus pagination for lists, and one error shape with a code, message, details and request id, all with correct status codes. Responses go through DTOs so only intended fields leave the server, with ids as strings, dates as ISO-8601 in UTC and money as integers in minor units with a currency, because floats and big numeric ids break in JavaScript. I add useful headers: Location on 201, ETag and Cache-Control so clients get 304s, a request id and rate-limit headers. And I document everything with OpenAPI and generate TypeScript types for the frontend."
+:::
+
+::: links
+OpenAPI Specification | https://spec.openapis.org/oas/latest.html
+Google JSON style guide | https://google.github.io/styleguide/jsoncstyleguide.xml
+RFC 9457: Problem Details for HTTP APIs | https://www.rfc-editor.org/rfc/rfc9457.html
+:::
+
+=== How do you handle authentication? (end-to-end overview)
+@p 3
+@tags auth, bcrypt, oauth
+@quick
+- **Register**: validate → check duplicates → **hash** the password (bcrypt cost 12 or argon2/scrypt) → save (unique email index).
+- **Login**: find user → compare hash (constant time) → issue a **session** or **access + refresh tokens**; generic error on failure.
+- **Every request**: `authenticate` (who) → `authorize` (roles/permissions + **ownership**).
+- **Lifecycle**: logout/revoke, password reset with a **hashed, single-use, 15-minute** token, email verification, MFA, lockout + rate limits.
+- Measured bcrypt: cost 10 ≈ **64 ms**, 11 ≈ 119 ms, **12 ≈ 233 ms**, 13 ≈ 469 ms; slow on purpose, so brute force is expensive.
+
+::: text 🧒 In simple words
+Running authentication is like running a **members-only club**. **Sign-up**: check the form and store a fingerprint of the password, never the password itself. **Entrance**: compare fingerprints and hand out a wristband. **Inside**: guards check the wristband at every door and also whether this member may enter *this* room. **Lost card**: send a one-time link that expires quickly. **Security**: lock the door after too many wrong guesses, and offer a second check (MFA) for important members. Or hire a professional security company (Cognito, Auth0) to do all of it.
+:::
+
+::: text 📖 Detailed answer
+### Building blocks
+| Step | What to do | Pitfalls |
+|---|---|---|
+| **Register** | Validate, normalise email, check duplicates (and rely on a **unique index**), hash with bcrypt (cost ≥ 12) / argon2id / scrypt | Plain SHA-256 (too fast), returning the hash in responses |
+| **Login** | Find by email, compare hash, issue credentials | Different errors for "no user" vs "wrong password" (account enumeration) |
+| **Request auth** | Middleware verifies the session/JWT → `req.user` | Trusting the role in an old token after it changed |
+| **Authorization** | Roles/permissions + **ownership checks** in queries | Only hiding buttons in the UI |
+| **Logout** | Destroy session / revoke refresh token | Only deleting the token in the browser |
+| **Password reset** | Random token, store its **SHA-256 hash**, 15-min expiry, single use, invalidate sessions after reset | Storing raw tokens, long expiry, revealing whether an email exists |
+| **Hardening** | Rate-limit login, lockout/backoff, MFA (TOTP/WebAuthn), audit logs, HTTPS | Unlimited guesses |
+
+### Password hashing cost (measured, Node 22)
+| bcrypt cost | Time per hash |
+|---|---|
+| 10 | 64 ms |
+| 11 | 119 ms |
+| **12** | **233 ms** |
+| 13 | 469 ms |
+Each +1 doubles the work for attackers too. Choose the highest cost your login latency budget allows (~250 ms is common). Note: bcrypt only uses the first **72 bytes** of a password.
+
+### Third-party identity
+**OAuth 2.0 / OpenID Connect**: "Log in with Google/Microsoft", enterprise SSO (Okta, Entra ID, Cognito). SPAs use **Authorization Code + PKCE**; the API verifies the provider's JWTs with its **JWKS** public keys. Managed services (Cognito, Auth0, Clerk, Firebase Auth) handle MFA, resets and breach detection for you.
+:::
+
+::: diagram End-to-end authentication
+flowchart LR
+  REG["Register"] --> V["validate"] --> H["bcrypt hash cost 12"] --> DB[("users: unique email")]
+  LOGIN["Login"] --> RL["rate limit + lockout"] --> CMP["compare hash"] --> TOK["session or access + refresh"]
+  TOK --> REQ["Requests"] --> AN["authenticate"] --> AZ["authorize: role + owner"] --> C["controller"]
+  RESET["Forgot password"] --> RT["random token, store SHA-256, 15 min"] --> MAIL["email link"]
+:::
+
+::: chart bar Measured: bcrypt hash time by cost factor (Node 22, ms)
+Cost,Milliseconds
+10,64
+11,119
+12,233
+13,469
+:::
+
+::: image A members-only club: sign-up, entrance, guards at every door and a lost-card procedure
+/images/rest-auth/auth-overview.svg
+:::
+
+::: text 🪜 Step by step
+The password-reset flow in the service below:
+1. `POST /auth/forgot { email }` always answers **204** (never reveals whether the email exists).
+2. If the user exists: create 32 random bytes → the **raw token** goes only into the email link; the database stores **SHA-256(token)** and an expiry 15 minutes ahead.
+3. The user clicks the link → `POST /auth/reset { token, newPassword }`.
+4. The server hashes the presented token and looks up a user with that hash and an expiry in the future.
+5. Found → hash the new password with bcrypt, **clear** the reset token (single use) and bump `tokenVersion` so old sessions/tokens die.
+6. Not found or expired → **400** "Invalid or expired token". A leaked database doesn't contain usable reset tokens because only hashes are stored.
+:::
+
+::: code javascript Auth service: register, login, lockout, password reset (node auth-service.js)
+// How to run: npm install express bcrypt jsonwebtoken && node auth-service.js
+// Then: curl -s -X POST localhost:3000/auth/register -H 'Content-Type: application/json' -d '{"email":"asha@x.com","password":"correct horse 1"}'
+//       curl -s -X POST localhost:3000/auth/login -H 'Content-Type: application/json' -d '{"email":"asha@x.com","password":"correct horse 1"}'
+//       curl -s -i -X POST localhost:3000/auth/forgot -H 'Content-Type: application/json' -d '{"email":"asha@x.com"}'   (the reset link is printed in the server log)
+const express = require('express');
+const bcrypt = require('bcrypt');
+const jwt = require('jsonwebtoken');
+const crypto = require('crypto');
+
+const JWT_SECRET = process.env.JWT_SECRET || crypto.randomBytes(32).toString('hex');
+const BCRYPT_COST = 12;
+const MAX_FAILURES = 5;
+const LOCK_MS = 15 * 60 * 1000;
+const users = new Map();                                              // email → user (a real app: Mongo with a unique index)
+const sha256 = (s) => crypto.createHash('sha256').update(s).digest('hex');
+const DUMMY_HASH = bcrypt.hashSync('timing-equaliser', BCRYPT_COST);  // compared when the email is unknown
+
+class AuthError extends Error { constructor(status, message) { super(message); this.status = status; } }
+
+const authService = {
+  async register({ email, password }) {
+    const normalized = String(email || '').trim().toLowerCase();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalized)) throw new AuthError(400, 'Valid email required');
+    if (typeof password !== 'string' || password.length < 10 || Buffer.byteLength(password) > 72) throw new AuthError(400, 'Password: 10-72 bytes');
+    if (users.has(normalized)) throw new AuthError(409, 'Email already registered');
+    const user = { id: crypto.randomUUID(), email: normalized, role: 'user', tokenVersion: 0, failures: 0, lockedUntil: 0, passwordHash: await bcrypt.hash(password, BCRYPT_COST) };
+    users.set(normalized, user);
+    return { id: user.id, email: user.email };
+  },
+
+  async login({ email, password }) {
+    const user = users.get(String(email || '').trim().toLowerCase());
+    if (user && user.lockedUntil > Date.now()) throw new AuthError(423, 'Account temporarily locked, try again later');
+    // compare against a dummy hash for unknown emails → same response time either way
+    const ok = await bcrypt.compare(String(password || ''), user ? user.passwordHash : DUMMY_HASH) && Boolean(user);
+    if (!ok) {
+      if (user && ++user.failures >= MAX_FAILURES) { user.lockedUntil = Date.now() + LOCK_MS; user.failures = 0; }
+      throw new AuthError(401, 'Invalid email or password');          // generic: no account enumeration
+    }
+    user.failures = 0;
+    return { accessToken: jwt.sign({ sub: user.id, role: user.role, tv: user.tokenVersion }, JWT_SECRET, { expiresIn: '15m' }) };
+  },
+
+  async requestPasswordReset(email) {
+    const user = users.get(String(email || '').trim().toLowerCase());
+    if (!user) return;                                                // same response whether or not the email exists
+    const rawToken = crypto.randomBytes(32).toString('base64url');
+    user.resetTokenHash = sha256(rawToken);                           // store only the hash
+    user.resetExpires = Date.now() + 15 * 60 * 1000;
+    console.log(`(email) reset link: http://localhost:3000/reset?token=${rawToken}`);
+  },
+
+  async resetPassword({ token, newPassword }) {
+    const hash = sha256(String(token || ''));
+    const user = [...users.values()].find((u) => u.resetTokenHash === hash && u.resetExpires > Date.now());
+    if (!user) throw new AuthError(400, 'Invalid or expired token');
+    if (typeof newPassword !== 'string' || newPassword.length < 10) throw new AuthError(400, 'Password: at least 10 characters');
+    user.passwordHash = await bcrypt.hash(newPassword, BCRYPT_COST);
+    user.resetTokenHash = undefined;                                  // single use
+    user.resetExpires = undefined;
+    user.tokenVersion += 1;                                           // old tokens stop working
+  },
+};
+
+const app = express();
+app.use(express.json());
+const route = (fn, status = 200) => async (req, res) => {
+  try {
+    const result = await fn(req.body || {});
+    return result === undefined ? res.status(204).end() : res.status(status).json(result);
+  } catch (err) {
+    return res.status(err.status || 500).json({ error: err.status ? err.message : 'Internal error' });
+  }
+};
+app.post('/auth/register', route((b) => authService.register(b), 201));
+app.post('/auth/login', route((b) => authService.login(b)));
+app.post('/auth/forgot', route((b) => authService.requestPasswordReset(b.email)));
+app.post('/auth/reset', route((b) => authService.resetPassword(b)));
+
+const PORT = Number(process.env.PORT) || 3000;
+app.listen(PORT, () => console.log(`http://localhost:${PORT}`));
+:::
+
+::: code javascript Browser demo: hashed, expiring, single-use reset tokens (runnable)
+const sha256 = async (text) => Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text))), (b) => b.toString(16).padStart(2, '0')).join('');
+const store = { user: { email: 'asha@x.com', resetTokenHash: null, resetExpires: 0 } };
+
+async function requestReset(now) {
+  const raw = crypto.randomUUID() + crypto.randomUUID();           // goes ONLY into the email
+  store.user.resetTokenHash = await sha256(raw);
+  store.user.resetExpires = now + 15 * 60 * 1000;
+  return raw;
+}
+async function reset(raw, now) {
+  const ok = store.user.resetTokenHash === await sha256(raw) && store.user.resetExpires > now;
+  if (ok) { store.user.resetTokenHash = null; store.user.resetExpires = 0; }
+  return ok;
+}
+
+(async () => {
+  const t0 = Date.now();
+  const raw = await requestReset(t0);
+  console.log('database stores a hash, not the token', store.user.resetTokenHash !== raw && store.user.resetTokenHash.length === 64 ? '✅' : '❌ FAIL');
+  console.log('valid link works', await reset(raw, t0 + 60_000) ? '✅' : '❌ FAIL');
+  console.log('second use rejected (single use)', !(await reset(raw, t0 + 61_000)) ? '✅' : '❌ FAIL');
+  const raw2 = await requestReset(t0);
+  console.log('expired after 15 minutes', !(await reset(raw2, t0 + 16 * 60_000)) ? '✅' : '❌ FAIL');
+  console.log('a guessed token fails', !(await reset('guess', t0)) ? '✅' : '❌ FAIL');
+})();
+:::
+
+::: warning ⚠️ Common mistakes
+- Fast hashes (MD5/SHA-256) or low bcrypt cost for passwords; unsalted hashes.
+- Different messages or timings for "unknown email" vs "wrong password" (account enumeration).
+- Reset tokens stored in plain text, valid for days, or reusable.
+- No rate limiting/lockout on login → credential stuffing works.
+- Building everything yourself when SSO/MFA/compliance requirements point to a managed provider.
+:::
+
+::: understand
+- Authentication is a **lifecycle**, not a login form: register, login, request checks, refresh, logout, reset, MFA, revocation.
+- Slowness is a feature for password hashing; tokens and sessions keep everyday requests fast.
+- Hash anything that works like a password: passwords, reset tokens, API keys.
+:::
+
+::: ask
+- *"Build our own or use a provider (Cognito, Auth0, Okta)?"*
+- *"Do we need SSO, social login, MFA, multi-tenancy?"*
+- *"What are the compliance requirements (PCI, SOC 2, HIPAA)?"*
+:::
+
+::: important ⭐ Say this in the interview
+"Registration validates input, normalises the email and stores a slow, salted hash, bcrypt with cost 12 or argon2, with a unique index on email; in a quick test cost 12 took about 230 milliseconds, which is fine for login and expensive for attackers. Login compares the hash, returns the same generic error for unknown emails and wrong passwords, rate-limits and locks out repeated failures, and issues a session or a short access token plus a rotated refresh token. Every request goes through authenticate and then authorization, including ownership checks in queries. Password reset uses a random single-use token, of which I store only a SHA-256 hash, valid for 15 minutes, and a reset revokes existing tokens. For SSO and MFA I'd lean on OpenID Connect with a provider like Cognito or Auth0."
+:::
+
+::: links
+OWASP: Password storage cheat sheet | https://cheatsheetseries.owasp.org/cheatsheets/Password_Storage_Cheat_Sheet.html
+OWASP: Forgot password cheat sheet | https://cheatsheetseries.owasp.org/cheatsheets/Forgot_Password_Cheat_Sheet.html
+OAuth 2.0 for browser-based apps (PKCE) | https://datatracker.ietf.org/doc/html/draft-ietf-oauth-browser-based-apps
+bcrypt (npm) | https://github.com/kelektiv/node.bcrypt.js
+:::
+
 === JWT vs session-based authentication
 @p 3
 @tags auth, jwt, session
@@ -1432,218 +1815,6 @@ OWASP: HTML5 security cheat sheet (local storage) | https://cheatsheetseries.owa
 OWASP: CSRF prevention cheat sheet | https://cheatsheetseries.owasp.org/cheatsheets/Cross-Site_Request_Forgery_Prevention_Cheat_Sheet.html
 Auth0: Refresh token rotation | https://auth0.com/docs/secure/tokens/refresh-tokens/refresh-token-rotation
 MDN: Set-Cookie (HttpOnly, SameSite) | https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Set-Cookie
-:::
-
-=== How do you handle authentication? (end-to-end overview)
-@p 3
-@tags auth, bcrypt, oauth
-@quick
-- **Register**: validate → check duplicates → **hash** the password (bcrypt cost 12 or argon2/scrypt) → save (unique email index).
-- **Login**: find user → compare hash (constant time) → issue a **session** or **access + refresh tokens**; generic error on failure.
-- **Every request**: `authenticate` (who) → `authorize` (roles/permissions + **ownership**).
-- **Lifecycle**: logout/revoke, password reset with a **hashed, single-use, 15-minute** token, email verification, MFA, lockout + rate limits.
-- Measured bcrypt: cost 10 ≈ **64 ms**, 11 ≈ 119 ms, **12 ≈ 233 ms**, 13 ≈ 469 ms; slow on purpose, so brute force is expensive.
-
-::: text 🧒 In simple words
-Running authentication is like running a **members-only club**. **Sign-up**: check the form and store a fingerprint of the password, never the password itself. **Entrance**: compare fingerprints and hand out a wristband. **Inside**: guards check the wristband at every door and also whether this member may enter *this* room. **Lost card**: send a one-time link that expires quickly. **Security**: lock the door after too many wrong guesses, and offer a second check (MFA) for important members. Or hire a professional security company (Cognito, Auth0) to do all of it.
-:::
-
-::: text 📖 Detailed answer
-### Building blocks
-| Step | What to do | Pitfalls |
-|---|---|---|
-| **Register** | Validate, normalise email, check duplicates (and rely on a **unique index**), hash with bcrypt (cost ≥ 12) / argon2id / scrypt | Plain SHA-256 (too fast), returning the hash in responses |
-| **Login** | Find by email, compare hash, issue credentials | Different errors for "no user" vs "wrong password" (account enumeration) |
-| **Request auth** | Middleware verifies the session/JWT → `req.user` | Trusting the role in an old token after it changed |
-| **Authorization** | Roles/permissions + **ownership checks** in queries | Only hiding buttons in the UI |
-| **Logout** | Destroy session / revoke refresh token | Only deleting the token in the browser |
-| **Password reset** | Random token, store its **SHA-256 hash**, 15-min expiry, single use, invalidate sessions after reset | Storing raw tokens, long expiry, revealing whether an email exists |
-| **Hardening** | Rate-limit login, lockout/backoff, MFA (TOTP/WebAuthn), audit logs, HTTPS | Unlimited guesses |
-
-### Password hashing cost (measured, Node 22)
-| bcrypt cost | Time per hash |
-|---|---|
-| 10 | 64 ms |
-| 11 | 119 ms |
-| **12** | **233 ms** |
-| 13 | 469 ms |
-Each +1 doubles the work for attackers too. Choose the highest cost your login latency budget allows (~250 ms is common). Note: bcrypt only uses the first **72 bytes** of a password.
-
-### Third-party identity
-**OAuth 2.0 / OpenID Connect**: "Log in with Google/Microsoft", enterprise SSO (Okta, Entra ID, Cognito). SPAs use **Authorization Code + PKCE**; the API verifies the provider's JWTs with its **JWKS** public keys. Managed services (Cognito, Auth0, Clerk, Firebase Auth) handle MFA, resets and breach detection for you.
-:::
-
-::: diagram End-to-end authentication
-flowchart LR
-  REG["Register"] --> V["validate"] --> H["bcrypt hash cost 12"] --> DB[("users: unique email")]
-  LOGIN["Login"] --> RL["rate limit + lockout"] --> CMP["compare hash"] --> TOK["session or access + refresh"]
-  TOK --> REQ["Requests"] --> AN["authenticate"] --> AZ["authorize: role + owner"] --> C["controller"]
-  RESET["Forgot password"] --> RT["random token, store SHA-256, 15 min"] --> MAIL["email link"]
-:::
-
-::: chart bar Measured: bcrypt hash time by cost factor (Node 22, ms)
-Cost,Milliseconds
-10,64
-11,119
-12,233
-13,469
-:::
-
-::: image A members-only club: sign-up, entrance, guards at every door and a lost-card procedure
-/images/rest-auth/auth-overview.svg
-:::
-
-::: text 🪜 Step by step
-The password-reset flow in the service below:
-1. `POST /auth/forgot { email }` always answers **204** (never reveals whether the email exists).
-2. If the user exists: create 32 random bytes → the **raw token** goes only into the email link; the database stores **SHA-256(token)** and an expiry 15 minutes ahead.
-3. The user clicks the link → `POST /auth/reset { token, newPassword }`.
-4. The server hashes the presented token and looks up a user with that hash and an expiry in the future.
-5. Found → hash the new password with bcrypt, **clear** the reset token (single use) and bump `tokenVersion` so old sessions/tokens die.
-6. Not found or expired → **400** "Invalid or expired token". A leaked database doesn't contain usable reset tokens because only hashes are stored.
-:::
-
-::: code javascript Auth service: register, login, lockout, password reset (node auth-service.js)
-// How to run: npm install express bcrypt jsonwebtoken && node auth-service.js
-// Then: curl -s -X POST localhost:3000/auth/register -H 'Content-Type: application/json' -d '{"email":"asha@x.com","password":"correct horse 1"}'
-//       curl -s -X POST localhost:3000/auth/login -H 'Content-Type: application/json' -d '{"email":"asha@x.com","password":"correct horse 1"}'
-//       curl -s -i -X POST localhost:3000/auth/forgot -H 'Content-Type: application/json' -d '{"email":"asha@x.com"}'   (the reset link is printed in the server log)
-const express = require('express');
-const bcrypt = require('bcrypt');
-const jwt = require('jsonwebtoken');
-const crypto = require('crypto');
-
-const JWT_SECRET = process.env.JWT_SECRET || crypto.randomBytes(32).toString('hex');
-const BCRYPT_COST = 12;
-const MAX_FAILURES = 5;
-const LOCK_MS = 15 * 60 * 1000;
-const users = new Map();                                              // email → user (a real app: Mongo with a unique index)
-const sha256 = (s) => crypto.createHash('sha256').update(s).digest('hex');
-const DUMMY_HASH = bcrypt.hashSync('timing-equaliser', BCRYPT_COST);  // compared when the email is unknown
-
-class AuthError extends Error { constructor(status, message) { super(message); this.status = status; } }
-
-const authService = {
-  async register({ email, password }) {
-    const normalized = String(email || '').trim().toLowerCase();
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalized)) throw new AuthError(400, 'Valid email required');
-    if (typeof password !== 'string' || password.length < 10 || Buffer.byteLength(password) > 72) throw new AuthError(400, 'Password: 10-72 bytes');
-    if (users.has(normalized)) throw new AuthError(409, 'Email already registered');
-    const user = { id: crypto.randomUUID(), email: normalized, role: 'user', tokenVersion: 0, failures: 0, lockedUntil: 0, passwordHash: await bcrypt.hash(password, BCRYPT_COST) };
-    users.set(normalized, user);
-    return { id: user.id, email: user.email };
-  },
-
-  async login({ email, password }) {
-    const user = users.get(String(email || '').trim().toLowerCase());
-    if (user && user.lockedUntil > Date.now()) throw new AuthError(423, 'Account temporarily locked, try again later');
-    // compare against a dummy hash for unknown emails → same response time either way
-    const ok = await bcrypt.compare(String(password || ''), user ? user.passwordHash : DUMMY_HASH) && Boolean(user);
-    if (!ok) {
-      if (user && ++user.failures >= MAX_FAILURES) { user.lockedUntil = Date.now() + LOCK_MS; user.failures = 0; }
-      throw new AuthError(401, 'Invalid email or password');          // generic: no account enumeration
-    }
-    user.failures = 0;
-    return { accessToken: jwt.sign({ sub: user.id, role: user.role, tv: user.tokenVersion }, JWT_SECRET, { expiresIn: '15m' }) };
-  },
-
-  async requestPasswordReset(email) {
-    const user = users.get(String(email || '').trim().toLowerCase());
-    if (!user) return;                                                // same response whether or not the email exists
-    const rawToken = crypto.randomBytes(32).toString('base64url');
-    user.resetTokenHash = sha256(rawToken);                           // store only the hash
-    user.resetExpires = Date.now() + 15 * 60 * 1000;
-    console.log(`(email) reset link: http://localhost:3000/reset?token=${rawToken}`);
-  },
-
-  async resetPassword({ token, newPassword }) {
-    const hash = sha256(String(token || ''));
-    const user = [...users.values()].find((u) => u.resetTokenHash === hash && u.resetExpires > Date.now());
-    if (!user) throw new AuthError(400, 'Invalid or expired token');
-    if (typeof newPassword !== 'string' || newPassword.length < 10) throw new AuthError(400, 'Password: at least 10 characters');
-    user.passwordHash = await bcrypt.hash(newPassword, BCRYPT_COST);
-    user.resetTokenHash = undefined;                                  // single use
-    user.resetExpires = undefined;
-    user.tokenVersion += 1;                                           // old tokens stop working
-  },
-};
-
-const app = express();
-app.use(express.json());
-const route = (fn, status = 200) => async (req, res) => {
-  try {
-    const result = await fn(req.body || {});
-    return result === undefined ? res.status(204).end() : res.status(status).json(result);
-  } catch (err) {
-    return res.status(err.status || 500).json({ error: err.status ? err.message : 'Internal error' });
-  }
-};
-app.post('/auth/register', route((b) => authService.register(b), 201));
-app.post('/auth/login', route((b) => authService.login(b)));
-app.post('/auth/forgot', route((b) => authService.requestPasswordReset(b.email)));
-app.post('/auth/reset', route((b) => authService.resetPassword(b)));
-
-const PORT = Number(process.env.PORT) || 3000;
-app.listen(PORT, () => console.log(`http://localhost:${PORT}`));
-:::
-
-::: code javascript Browser demo: hashed, expiring, single-use reset tokens (runnable)
-const sha256 = async (text) => Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text))), (b) => b.toString(16).padStart(2, '0')).join('');
-const store = { user: { email: 'asha@x.com', resetTokenHash: null, resetExpires: 0 } };
-
-async function requestReset(now) {
-  const raw = crypto.randomUUID() + crypto.randomUUID();           // goes ONLY into the email
-  store.user.resetTokenHash = await sha256(raw);
-  store.user.resetExpires = now + 15 * 60 * 1000;
-  return raw;
-}
-async function reset(raw, now) {
-  const ok = store.user.resetTokenHash === await sha256(raw) && store.user.resetExpires > now;
-  if (ok) { store.user.resetTokenHash = null; store.user.resetExpires = 0; }
-  return ok;
-}
-
-(async () => {
-  const t0 = Date.now();
-  const raw = await requestReset(t0);
-  console.log('database stores a hash, not the token', store.user.resetTokenHash !== raw && store.user.resetTokenHash.length === 64 ? '✅' : '❌ FAIL');
-  console.log('valid link works', await reset(raw, t0 + 60_000) ? '✅' : '❌ FAIL');
-  console.log('second use rejected (single use)', !(await reset(raw, t0 + 61_000)) ? '✅' : '❌ FAIL');
-  const raw2 = await requestReset(t0);
-  console.log('expired after 15 minutes', !(await reset(raw2, t0 + 16 * 60_000)) ? '✅' : '❌ FAIL');
-  console.log('a guessed token fails', !(await reset('guess', t0)) ? '✅' : '❌ FAIL');
-})();
-:::
-
-::: warning ⚠️ Common mistakes
-- Fast hashes (MD5/SHA-256) or low bcrypt cost for passwords; unsalted hashes.
-- Different messages or timings for "unknown email" vs "wrong password" (account enumeration).
-- Reset tokens stored in plain text, valid for days, or reusable.
-- No rate limiting/lockout on login → credential stuffing works.
-- Building everything yourself when SSO/MFA/compliance requirements point to a managed provider.
-:::
-
-::: understand
-- Authentication is a **lifecycle**, not a login form: register, login, request checks, refresh, logout, reset, MFA, revocation.
-- Slowness is a feature for password hashing; tokens and sessions keep everyday requests fast.
-- Hash anything that works like a password: passwords, reset tokens, API keys.
-:::
-
-::: ask
-- *"Build our own or use a provider (Cognito, Auth0, Okta)?"*
-- *"Do we need SSO, social login, MFA, multi-tenancy?"*
-- *"What are the compliance requirements (PCI, SOC 2, HIPAA)?"*
-:::
-
-::: important ⭐ Say this in the interview
-"Registration validates input, normalises the email and stores a slow, salted hash, bcrypt with cost 12 or argon2, with a unique index on email; in a quick test cost 12 took about 230 milliseconds, which is fine for login and expensive for attackers. Login compares the hash, returns the same generic error for unknown emails and wrong passwords, rate-limits and locks out repeated failures, and issues a session or a short access token plus a rotated refresh token. Every request goes through authenticate and then authorization, including ownership checks in queries. Password reset uses a random single-use token, of which I store only a SHA-256 hash, valid for 15 minutes, and a reset revokes existing tokens. For SSO and MFA I'd lean on OpenID Connect with a provider like Cognito or Auth0."
-:::
-
-::: links
-OWASP: Password storage cheat sheet | https://cheatsheetseries.owasp.org/cheatsheets/Password_Storage_Cheat_Sheet.html
-OWASP: Forgot password cheat sheet | https://cheatsheetseries.owasp.org/cheatsheets/Forgot_Password_Cheat_Sheet.html
-OAuth 2.0 for browser-based apps (PKCE) | https://datatracker.ietf.org/doc/html/draft-ietf-oauth-browser-based-apps
-bcrypt (npm) | https://github.com/kelektiv/node.bcrypt.js
 :::
 
 === How do you protect APIs from unauthorized access?
@@ -2284,175 +2455,4 @@ async function paySafe(shop) {
 MongoDB: Atomicity and transactions | https://www.mongodb.com/docs/manual/core/write-operations-atomicity/
 MongoDB: Unique indexes | https://www.mongodb.com/docs/manual/core/index-unique/
 Redis: Distributed locks | https://redis.io/docs/latest/develop/use/patterns/distributed-locks/
-:::
-
-=== How do you design a good API response?
-@p 2
-@tags api-design, response
-@quick
-- **Consistent shapes**: success `{ data, meta? }`, list `{ data: [...], pagination }`, error `{ error: { code, message, details?, requestId } }`.
-- Correct **status codes** and useful **headers**: `Location` (201), `ETag` + `Cache-Control`, `RateLimit-*`, `X-Request-Id`.
-- Safe, stable types: ISO-8601 **UTC** dates, ids as strings, **money in minor units** (cents/paise) + currency, enums as documented strings.
-- Return only what clients need through **DTOs** (never `passwordHash`, `__v`, internal flags); optional `fields=` selection.
-- Document it with **OpenAPI** and generate client types from it.
-
-::: text 🧒 In simple words
-A good API response is like a **well-designed receipt**: the total is in the same place every time, amounts are exact (no "about 19.99"), the date is unambiguous, there's a reference number for complaints, and it never prints the store's internal notes. Because every receipt follows the same layout, the customer (the frontend) can read any of them without special instructions.
-:::
-
-::: text 📖 Detailed answer
-### Shapes
-| Case | Example |
-|---|---|
-| Single resource | `{ "data": { "id": "66f1…", "name": "Asha", "createdAt": "2026-09-30T04:00:00.000Z" } }` |
-| List | `{ "data": [ … ], "pagination": { "page": 2, "limit": 20, "total": 523, "hasNextPage": true } }` (or `nextCursor`) |
-| Error | `{ "error": { "code": "VALIDATION_ERROR", "message": "Validation failed", "details": [ { "field": "email", "message": "Invalid email" } ], "requestId": "a1b2…" } }` |
-| No body | `204 No Content` (DELETE) |
-
-### Field conventions
-| Concern | Recommendation | Why |
-|---|---|---|
-| Dates | ISO-8601 in **UTC** (`2026-09-30T04:00:00.000Z`) | No time-zone guessing; sortable |
-| Ids | Strings | 64-bit numbers lose precision in JavaScript |
-| Money | Integer minor units + currency (`{ "amount": 49900, "currency": "INR" }`) | `0.1 + 0.2 !== 0.3` |
-| Enums | Documented strings (`"PAID"`) | Readable, extensible |
-| Booleans | `isActive`, `hasNextPage` | Self-explanatory |
-| Missing vs null | Pick a rule and keep it | Clients handle one case |
-| Casing | camelCase JSON | Matches JavaScript |
-
-### Headers that make responses better
-`Location` on 201 · `ETag` + `Cache-Control` for caching and 304s · `X-Request-Id` for support · `RateLimit-*` · `Content-Type: application/json; charset=utf-8`.
-
-### Envelope or not?
-Some APIs return raw resources and put pagination in headers (GitHub's `Link`). Either is fine; **consistency** is what matters. Document it with **OpenAPI** and generate TypeScript types for the frontend.
-:::
-
-::: diagram From database document to response
-flowchart LR
-  DB[("document: _id, passwordHash, __v, priceRupees float, createdAt Date")] --> DTO["DTO mapper: allow-list fields"]
-  DTO --> T["types: id string, price in paise + currency, ISO UTC dates"]
-  T --> ENV["envelope: data + pagination"]
-  ENV --> H["headers: ETag, Cache-Control, X-Request-Id, Location"]
-  H --> C["client: one parser for every endpoint"]
-:::
-
-::: image A well-designed receipt: same layout every time, exact amounts, clear dates, no internal notes
-/images/rest-auth/api-response.svg
-:::
-
-::: text 🪜 Step by step
-`GET /api/products?page=1&limit=2` in the server below:
-1. The handler loads the page of products and the total.
-2. Each document goes through `toProductDTO`: `_id` → string `id`, price stays in **paise** with a `currency`, `createdAt` → ISO UTC, internal fields (`costPrice`, `__v`) are dropped.
-3. The list is wrapped as `{ data, pagination: { page, limit, total, hasNextPage } }`.
-4. The response gets `X-Request-Id` and, for the single-product endpoint, an `ETag` so `If-None-Match` can return **304**.
-5. `POST /api/products` returns **201** with `Location: /api/products/<id>` and the new DTO.
-6. Every error uses the same `{ error: { code, message, requestId } }` shape.
-:::
-
-::: code javascript Response helpers, DTOs, ETag and consistent errors (node responses.js)
-// How to run: npm install express && node responses.js
-// Then: curl -s "localhost:3000/api/products?page=1&limit=2"   curl -si localhost:3000/api/products/p1 | grep -i etag
-const express = require('express');
-const crypto = require('crypto');
-
-const app = express();
-app.use(express.json());
-app.use((req, res, next) => { req.id = crypto.randomUUID(); res.set('X-Request-Id', req.id); next(); });
-
-// "database" documents: note the internal fields and a raw Date
-const products = [
-  { _id: 'p1', name: 'Mug', pricePaise: 49900, currency: 'INR', costPrice: 120.5, __v: 0, createdAt: new Date('2026-09-01T10:00:00Z') },
-  { _id: 'p2', name: 'Pen', pricePaise: 9900, currency: 'INR', costPrice: 20, __v: 0, createdAt: new Date('2026-09-05T08:30:00Z') },
-  { _id: 'p3', name: 'Lamp', pricePaise: 189900, currency: 'INR', costPrice: 900, __v: 3, createdAt: new Date('2026-09-10T15:45:00Z') },
-];
-
-// DTO: an explicit allow-list of what clients may see, with safe types
-const toProductDTO = (p) => ({
-  id: String(p._id),
-  name: p.name,
-  price: { amount: p.pricePaise, currency: p.currency },          // integer minor units, never floats
-  createdAt: p.createdAt.toISOString(),                            // UTC ISO-8601
-});
-
-const sendError = (res, req, status, code, message, details) =>
-  res.status(status).json({ error: { code, message, ...(details && { details }), requestId: req.id } });
-
-app.get('/api/products', (req, res) => {
-  const page = Math.max(1, Number.parseInt(req.query.page, 10) || 1);
-  const limit = Math.min(100, Math.max(1, Number.parseInt(req.query.limit, 10) || 20));
-  const items = products.slice((page - 1) * limit, page * limit);
-  res.json({ data: items.map(toProductDTO), pagination: { page, limit, total: products.length, hasNextPage: page * limit < products.length } });
-});
-
-app.get('/api/products/:id', (req, res) => {
-  const product = products.find((p) => p._id === req.params.id);
-  if (!product) return sendError(res, req, 404, 'PRODUCT_NOT_FOUND', 'Product not found');
-  const body = { data: toProductDTO(product) };
-  const etag = `"${crypto.createHash('sha1').update(JSON.stringify(body)).digest('base64url')}"`;
-  res.set({ ETag: etag, 'Cache-Control': 'private, max-age=0, must-revalidate' });
-  if (req.get('if-none-match') === etag) return res.status(304).end();
-  return res.json(body);
-});
-
-app.post('/api/products', (req, res) => {
-  const { name, price } = req.body || {};
-  const details = [];
-  if (typeof name !== 'string' || name.trim().length < 2) details.push({ field: 'name', message: 'At least 2 characters' });
-  if (!Number.isInteger(price?.amount) || price.amount < 0) details.push({ field: 'price.amount', message: 'Integer in minor units (paise)' });
-  if (details.length) return sendError(res, req, 400, 'VALIDATION_ERROR', 'Validation failed', details);
-  const doc = { _id: `p${products.length + 1}`, name: name.trim(), pricePaise: price.amount, currency: price.currency || 'INR', costPrice: 0, __v: 0, createdAt: new Date() };
-  products.push(doc);
-  return res.status(201).location(`/api/products/${doc._id}`).json({ data: toProductDTO(doc) });
-});
-
-app.use((req, res) => sendError(res, req, 404, 'NOT_FOUND', `No route for ${req.method} ${req.originalUrl}`));
-
-const PORT = Number(process.env.PORT) || 3000;
-app.listen(PORT, () => console.log(`http://localhost:${PORT}/api/products`));
-:::
-
-::: code javascript Browser demo: why money is integers and ids are strings (runnable)
-const floatTotal = 0.1 + 0.2;
-console.log('0.1 + 0.2 =', floatTotal, floatTotal !== 0.3 ? '✅ floats are inexact' : '❌ FAIL');
-const paiseTotal = 10 + 20;                                        // ₹0.10 + ₹0.20 in paise
-console.log('10 + 20 paise =', paiseTotal, '→ ₹' + (paiseTotal / 100).toFixed(2), paiseTotal === 30 ? '✅' : '❌ FAIL');
-
-const bigId = '9007199254740993';                                  // a 64-bit id (e.g. from Twitter/Snowflake)
-console.log('as a JSON number it becomes', JSON.parse(bigId), String(JSON.parse(bigId)) !== bigId ? '✅ precision lost' : '❌ FAIL');
-console.log('as a string it survives', JSON.parse(`"${bigId}"`) === bigId ? '✅' : '❌ FAIL');
-
-const toDTO = (doc) => ({ id: String(doc._id), name: doc.name, createdAt: new Date(doc.createdAt).toISOString() });
-const dto = toDTO({ _id: 42, name: 'Asha', passwordHash: 'x', __v: 0, createdAt: Date.UTC(2026, 8, 30, 4) });
-console.log('DTO →', JSON.stringify(dto), !('passwordHash' in dto) && dto.createdAt === '2026-09-30T04:00:00.000Z' ? '✅' : '❌ FAIL');
-:::
-
-::: warning ⚠️ Common mistakes
-- Different shapes per endpoint (`users` vs `data` vs raw arrays) → special cases in every client.
-- Returning raw database documents (leaking `passwordHash`, `__v`, internal costs).
-- Floats for money, local-time dates without offsets, numeric 64-bit ids.
-- `200` with `{ success: false }` instead of real status codes.
-- No `Location` on create, no request id on errors, no documentation.
-:::
-
-::: understand
-- The response format is a **contract**; consistency lets the frontend write one API client.
-- DTOs separate the **storage model** from the **public model**, so schema changes don't leak.
-- Small type decisions (money, dates, ids) prevent whole classes of bugs.
-:::
-
-::: ask
-- *"Is there an existing API style guide or envelope?"*
-- *"Do clients need partial responses (`fields=`) or embedded related data (`include=`)?"*
-- *"Should we generate clients from OpenAPI?"*
-:::
-
-::: important ⭐ Say this in the interview
-"I keep response shapes consistent: a data field for single resources, data plus pagination for lists, and one error shape with a code, message, details and request id, all with correct status codes. Responses go through DTOs so only intended fields leave the server, with ids as strings, dates as ISO-8601 in UTC and money as integers in minor units with a currency, because floats and big numeric ids break in JavaScript. I add useful headers: Location on 201, ETag and Cache-Control so clients get 304s, a request id and rate-limit headers. And I document everything with OpenAPI and generate TypeScript types for the frontend."
-:::
-
-::: links
-OpenAPI Specification | https://spec.openapis.org/oas/latest.html
-Google JSON style guide | https://google.github.io/styleguide/jsoncstyleguide.xml
-RFC 9457: Problem Details for HTTP APIs | https://www.rfc-editor.org/rfc/rfc9457.html
 :::

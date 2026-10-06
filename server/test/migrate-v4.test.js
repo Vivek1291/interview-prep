@@ -11,7 +11,7 @@ const mongoose = require('mongoose');
 const Meta = require('../src/models/Meta');
 const Section = require('../src/models/Section');
 const Question = require('../src/models/Question');
-const { migrate, V4_FILES } = require('../src/seed/migrate');
+const { migrate, V4_FILES, CURRENT } = require('../src/seed/migrate');
 const { loadContent, defaultNodes, insertDefaultTerms } = require('../src/seed');
 
 const owner = new mongoose.Types.ObjectId();
@@ -54,7 +54,7 @@ after(async () => {
 const byKey = async (key) => Section.findOne({ key }).lean();
 
 test('v4 adds the JavaScript sections and keeps existing content', async () => {
-  assert.equal((await Meta.findById('schemaVersion').lean()).value, 4);
+  assert.equal((await Meta.findById('schemaVersion').lean()).value, CURRENT);
   const core = await byKey('frontend/javascript/core');
   assert.equal(core.title, 'My JS Core', 'the admin rename is kept');
   const coreChildren = await Section.find({ parent: core._id }).sort({ order: 1 }).lean();

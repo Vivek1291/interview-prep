@@ -691,10 +691,37 @@ input[aria-invalid="true"] { border-color: var(--danger); }
 .mentions li { margin: 3px 0; }
 .check-row { display: flex; gap: 8px; align-items: flex-start; margin-top: 12px; font-size: 14px; cursor: pointer; }
 
+.scroll-top {
+  position: fixed; right: 24px; bottom: 24px; z-index: 40;
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 10px 14px; border-radius: 999px; border: 1px solid var(--border);
+  background: var(--panel); color: var(--text); font: inherit; font-weight: 600; cursor: pointer;
+  box-shadow: 0 6px 20px rgba(15, 23, 42, 0.18);
+}
+.scroll-top:hover { background: var(--primary); color: #fff; border-color: transparent; }
+@media (max-width: 640px) { .scroll-top { right: 14px; bottom: 14px; padding: 10px 12px; } .scroll-top span { display: none; } }
+
 @media print {
-  .sidebar, .topbar, .revise-filters, .note-x, .zoom-btn { display: none !important; }
-  .app { display: block; height: auto; }
-  .content { overflow: visible; }
+  @page { margin: 14mm 12mm; }
+  * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  .sidebar, .sidebar-backdrop, .topbar, .revise-filters, .note-x, .zoom-btn, .scroll-top,
+  .q-actions, .page-add, .selection-pop, .term-panel, .term-panel-backdrop, .ai-panel,
+  .code-wrap button, .console, .add-block-btn, .sub-pages-card .btn { display: none !important; }
+  .app { display: block; height: auto; overflow: visible; }
+  .main, .content { display: block; overflow: visible; height: auto; }
+  html, body, .app, .main, .content, .page { background: #fff !important; }
+  .page { max-width: none; padding: 0; }
+  .q-meta .status-select, .q-meta .star-btn, .q-meta button { display: none !important; }
+  .block { box-shadow: none; }
+  /* long text blocks may break across pages (no big blank gaps); visuals stay in one piece */
+  .block-diagram, .block-image, .block-chart, .block-links { break-inside: avoid-page; }
+  .block-title { break-after: avoid; }
+  .block-title .caret { display: none; }
+  .code-wrap, .code-wrap pre { overflow: visible !important; max-height: none !important; }
+  .code-wrap pre, .code-wrap code { white-space: pre-wrap !important; word-break: break-word; }
+  .diagram svg, .blocks img { max-width: 100% !important; height: auto; break-inside: avoid; }
+  a[href^="http"]::after { content: " (" attr(href) ")"; font-size: 0.8em; color: #64748b; word-break: break-all; }
+  h1, h2, h3 { break-after: avoid; }
 }
 .ai-setup { display: flex; flex-direction: column; gap: 12px; align-items: flex-start; }
 .ai-setup p { margin: 0; line-height: 1.55; }

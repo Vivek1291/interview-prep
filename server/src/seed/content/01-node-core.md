@@ -3,175 +3,6 @@
 @color #22c55e
 @desc Event loop, async patterns, threads, streams, buffers and EventEmitter: the foundations every Node interview starts with. Every answer has simple words, a detailed explanation, diagrams, measured charts, runnable code and a model interview answer.
 
-=== How does the Node.js event loop work? (explain with an example)
-@p 3
-@tags event-loop, libuv, async
-@quick
-- Your JS runs on **one call stack**; slow I/O is handed to **libuv / the OS**; finished work comes back as **callbacks in queues**.
-- Event loop = "when the call stack is empty, take the next callback from the queues and run it".
-- Order to remember: **sync code → `process.nextTick` → Promise microtasks → timers → I/O (poll) → `setImmediate` (check) → close**.
-- Microtasks (nextTick, then Promises) are drained **after every single callback** (Node 11+).
-- Never block the loop: CPU-heavy work → Worker Threads, a job queue or another service.
-
-::: text 🧒 In simple words
-Imagine a restaurant with **one very fast waiter** (the JavaScript thread). He never stands in the kitchen waiting for food. He takes an order, passes it to the kitchen (the operating system and libuv), and immediately serves the next table. When a dish is ready, the kitchen rings a bell and puts the plate on the counter (a **queue**). Whenever the waiter's hands are free, he picks up the next plate from the counter. That "check the counter whenever my hands are free" routine is the **event loop**. One waiter can serve hundreds of tables because most of the time is spent *waiting for the kitchen*, not carrying plates.
-:::
-
-::: text 📖 Detailed answer
-The **event loop** is the mechanism that lets Node.js perform **non-blocking I/O on a single JavaScript thread**.
-
-### The moving parts
-| Part | What it is | Example |
-|---|---|---|
-| **Call stack** | Where your JS functions execute, one at a time | `handler()` → `validate()` → `JSON.parse()` |
-| **libuv** | C library under Node: event loop + async I/O + thread pool | Reads files, DNS lookups, timers |
-| **OS async APIs** | epoll (Linux), kqueue (macOS), IOCP (Windows) for sockets | Thousands of open HTTP connections |
-| **Thread pool** | 4 threads by default (`UV_THREADPOOL_SIZE`) | `fs`, `crypto.pbkdf2`, `zlib`, `dns.lookup` |
-| **Macrotask queues** | One FIFO queue per loop phase | timers, poll (I/O), check (`setImmediate`), close |
-| **Microtask queues** | `process.nextTick` queue, then the Promise queue | `.then`, `await` continuations, `queueMicrotask` |
-
-### What happens when you call something slow
-- Your code calls `fs.readFile`, `fetch`, a MongoDB query or `setTimeout`.
-- Node registers the work with libuv and **returns immediately**; your function keeps running and finishes.
-- The OS or a pool thread does the work in the background.
-- When it completes, libuv puts the **callback** into the right phase queue.
-- When the call stack is empty, the loop runs that callback; after **each** callback it empties the microtask queues.
-
-### The six phases of one loop iteration ("tick")
-| Phase | Runs |
-|---|---|
-| **timers** | `setTimeout` / `setInterval` callbacks whose time has passed |
-| **pending callbacks** | some deferred system errors (e.g. TCP `ECONNREFUSED`) |
-| **idle, prepare** | internal |
-| **poll** | new I/O events and their callbacks (most of your code); waits here when idle |
-| **check** | `setImmediate` callbacks |
-| **close callbacks** | `socket.on('close')` and similar |
-
-### Browser vs Node
-Both have a call stack, a macrotask queue and a microtask queue. Node adds **phases**, `process.nextTick` and `setImmediate`; the browser adds **rendering** steps (requestAnimationFrame, paint) between tasks.
-:::
-
-::: diagram Event loop: the big picture
-flowchart LR
-  A["Your JS code"] --> B["Call Stack"]
-  B -->|"async call: fs, db, http, timer"| C["libuv: OS async I/O + thread pool"]
-  C -->|"work done"| D["Callback queues (per phase)"]
-  D --> E{"Event loop: is the stack empty?"}
-  E -->|"yes: run next callback"| B
-  M["Microtasks: nextTick, then Promises"] -.->|"drained after every callback"| B
-:::
-
-::: diagram The phases of one loop iteration
-flowchart TD
-  T["1 timers: setTimeout, setInterval"] --> P["2 pending callbacks"]
-  P --> I["3 idle / prepare"]
-  I --> PO["4 poll: I/O callbacks, waits for I/O"]
-  PO --> CH["5 check: setImmediate"]
-  CH --> CL["6 close callbacks"]
-  CL --> T
-:::
-
-::: image The event loop: call stack, libuv, phase queues and microtasks between every callback
-/images/node-core/event-loop.svg
-:::
-
-::: text 🪜 Step by step
-Walk through the classic snippet below exactly like the engine does:
-1. Run the whole script **synchronously**: print `1`, schedule a timer (timers queue), queue a `.then` (microtask), queue a `queueMicrotask` (microtask), call the async function which prints `2` synchronously and pauses at `await` (its continuation is a microtask), print `3`.
-2. The script ends → **call stack empty**.
-3. Drain **microtasks** in FIFO order: `4: promise.then`, `4b: queueMicrotask`, `4c: after await`.
-4. The loop enters the **timers** phase: the 0 ms timer is due → print `5`.
-5. Nothing else is scheduled → in a script, the process exits; in a server, the loop **waits in poll** for the next request.
-:::
-
-::: code javascript Browser demo: predict the order, then verify it (runnable)
-// Runs in the browser and in Node. We record the order instead of guessing it.
-const order = [];
-const log = (label) => order.push(label);
-
-log('1 sync start');
-setTimeout(() => log('5 setTimeout (macrotask)'), 0);
-Promise.resolve().then(() => log('4 promise.then (microtask)'));
-queueMicrotask(() => log('4b queueMicrotask (microtask)'));
-(async () => {
-  log('2 async fn body runs synchronously');
-  await null;                                  // everything after this is a microtask
-  log('4c after await (microtask)');
-})();
-log('3 sync end');
-
-setTimeout(() => {
-  const expected = ['1 sync start', '2 async fn body runs synchronously', '3 sync end',
-    '4 promise.then (microtask)', '4b queueMicrotask (microtask)', '4c after await (microtask)', '5 setTimeout (macrotask)'];
-  order.forEach((l) => console.log(l));
-  console.log('order matches the event-loop rules', JSON.stringify(order) === JSON.stringify(expected) ? '✅' : '❌ FAIL');
-  console.log('all microtasks ran before the timer', order.indexOf('5 setTimeout (macrotask)') === 6 ? '✅' : '❌ FAIL');
-}, 20);
-:::
-
-::: code javascript Node-only: nextTick, setImmediate and I/O (node event-loop.js)
-// How to run: save as event-loop.js, then: node event-loop.js
-const fs = require('fs');
-
-console.log('A: sync');
-setTimeout(() => console.log('E/F: timeout 0 (main module: order vs immediate not guaranteed)'), 0);
-setImmediate(() => console.log('E/F: immediate'));
-process.nextTick(() => console.log('B: nextTick (before promises)'));
-Promise.resolve().then(() => console.log('C: promise'));
-
-fs.readFile(__filename, () => {
-  // We are now in the POLL phase → CHECK (setImmediate) always comes before the next TIMERS phase
-  setTimeout(() => console.log('H: timeout inside I/O callback'), 0);
-  setImmediate(() => console.log('G: immediate inside I/O callback (always first here)'));
-});
-
-console.log('D: sync end');
-// Output: A, D, B, C, then E/F in either order, then G, H
-:::
-
-::: code javascript Blocking the event loop: a timer that fires late (node block.js)
-// How to run: node block.js
-const start = Date.now();
-setTimeout(() => console.log(`timer asked for 10 ms, fired after ${Date.now() - start} ms`), 10);
-
-let sum = 0;
-for (let i = 0; i < 3e8; i++) sum += i;          // ~300 ms of pure CPU on the ONLY JS thread
-console.log('heavy loop done', sum > 0);
-// The timer can only run after the loop finishes. In a server, every request waits like this timer.
-:::
-
-::: warning ⚠️ Common mistakes
-- Saying "Node is single-threaded" without qualifying it: **JS execution** is single-threaded; libuv and the OS use other threads.
-- Believing `setTimeout(fn, 0)` runs "immediately": it runs **after** the current code, all microtasks and the next timers phase (at least ~1 ms).
-- Putting CPU-heavy work (big loops, `JSON.parse` of huge payloads, sync crypto) in a request handler: it blocks **every** user.
-- Recursive `process.nextTick` or endless promise chains: microtasks run before I/O, so they can **starve** the loop.
-- Assuming the main-module order of `setTimeout(0)` vs `setImmediate` is fixed (it isn't; inside an I/O callback it is).
-:::
-
-::: understand
-- The loop exists so one thread can **wait on thousands of I/O operations at once**; waiting costs almost nothing, computing blocks everyone.
-- **Microtasks before macrotasks** is the rule that explains almost every "predict the output" question.
-- In production, event-loop health is a metric: monitor **event loop lag/utilisation** (`perf_hooks.monitorEventLoopDelay`).
-:::
-
-::: ask
-- *"Do you mean the browser event loop or Node's libuv event loop?"* They differ (phases, `nextTick`, `setImmediate`).
-- *"Which Node version?"* Since **Node 11**, microtasks run between each timer callback; older versions ran the whole timers queue first.
-- For a puzzle: *"Is this in the main module or inside an I/O callback?"* (decides timeout vs immediate order).
-- Trap: don't promise exact timer precision; timers are "not earlier than", never "exactly at".
-:::
-
-::: important ⭐ Say this in the interview
-"Node runs my JavaScript on a single thread with an event loop. When I start I/O such as a file read, a database query or an HTTP call, Node hands it to libuv, which uses the operating system's async APIs or a small thread pool, and my code continues. When the work finishes, its callback is queued. The event loop runs queued callbacks in phases (timers, poll for I/O, check for setImmediate, close) whenever the call stack is empty, and after each callback it drains microtasks: process.nextTick first, then promises. That's why one Node process handles thousands of concurrent connections cheaply, and why CPU-heavy code must go to worker threads or another service instead of the main thread."
-:::
-
-::: links
-Node.js docs: The event loop, timers and nextTick | https://nodejs.org/en/learn/asynchronous-work/event-loop-timers-and-nexttick
-Node.js docs: Don't block the event loop | https://nodejs.org/en/learn/asynchronous-work/dont-block-the-event-loop
-libuv design overview | https://docs.libuv.org/en/v1.x/design.html
-Talk: What the heck is the event loop anyway? (Philip Roberts) | https://www.youtube.com/watch?v=8aGhZQkoFbQ
-:::
-
 === What is Node.js and why is it used?
 @p 3
 @tags basics, v8, runtime
@@ -302,181 +133,6 @@ Promise.all(Array.from({ length: 100 }, (_, i) => fakeDbQuery(i))).then((results
 Node.js: Introduction to Node.js | https://nodejs.org/en/learn/getting-started/introduction-to-nodejs
 V8 documentation | https://v8.dev/docs
 libuv design overview | https://docs.libuv.org/en/v1.x/design.html
-:::
-
-=== What is non-blocking I/O?
-@p 3
-@tags io, async
-@quick
-- **I/O** = disk, network, database, other services. **Blocking**: the thread waits for it. **Non-blocking**: start it, keep working, get notified later.
-- Node is built around non-blocking I/O, so **one thread serves many requests**.
-- Never use `*Sync` APIs (`readFileSync`, `pbkdf2Sync`) inside request handlers; they're fine at startup.
-- `async` doesn't make CPU work non-blocking; only I/O (or work moved to other threads) is non-blocking.
-- Measured: `/health` answered in **~3 ms** next to async hashing vs **~345 ms** next to sync hashing.
-
-::: text 🧒 In simple words
-**Blocking** is like standing at the microwave for three minutes watching your food spin: you can't do anything else. **Non-blocking** is pressing start, walking away to set the table, and coming back when it beeps. Computers spend a lot of time waiting for disks, networks and databases. With non-blocking I/O the program says "start reading this, tell me when you're done" and continues with other work, so a single worker can keep many tasks moving at once.
-:::
-
-::: text 📖 Detailed answer
-**I/O (input/output)** is any communication with the outside world: reading files, network sockets, HTTP calls, database queries.
-
-| | Blocking I/O | Non-blocking I/O |
-|---|---|---|
-| What the thread does | Stops and waits until the data arrives | Continues immediately; result comes later |
-| Node examples | `fs.readFileSync`, `crypto.pbkdf2Sync`, `child_process.execSync` | `fs.promises.readFile`, `fetch`, DB drivers, `crypto.pbkdf2` with a callback |
-| Result delivery | Return value | Callback, Promise (`await`), event |
-| Effect in a Node server | **Every** request waits (one JS thread) | Other requests keep being served |
-| Where it's OK | Startup scripts, CLIs, config loading | Everywhere, especially request paths |
-
-### How Node achieves it
-- **Network I/O** uses the OS's readiness notifications (epoll/kqueue/IOCP): one thread can watch thousands of sockets.
-- **File system, DNS lookups, some crypto and compression** have no good async OS API everywhere, so libuv runs them on its **thread pool** and notifies the loop when done.
-- Your JS only runs the **callbacks**; it never sits waiting.
-
-### Measured on this machine (Node 22)
-A server received four "heavy" requests that each hash a password (600,000 PBKDF2 iterations) and then one `/health` request:
-- Handler uses `pbkdf2Sync` (blocking): `/health` waited **~345 ms**.
-- Handler uses `pbkdf2` with a callback (non-blocking, runs on the thread pool): `/health` answered in **~3 ms**.
-:::
-
-::: diagram Blocking vs non-blocking server timeline
-sequenceDiagram
-  participant C1 as Request 1 (report)
-  participant N as Node JS thread
-  participant D as Disk / DB (libuv)
-  participant C2 as Request 2 (health)
-  C1->>N: GET /report
-  N->>D: readFile (non-blocking)
-  C2->>N: GET /health
-  N-->>C2: 200 immediately
-  D-->>N: data ready (callback)
-  N-->>C1: 200 with the report
-:::
-
-::: chart bar Measured: /health latency while 4 heavy hashing requests run (Node 22, ms)
-Handler style,Health latency (ms)
-pbkdf2Sync (blocking),345
-pbkdf2 callback (non-blocking),3
-:::
-
-::: image Blocking vs non-blocking: the waiter who waits in the kitchen vs the one who keeps serving
-/images/node-core/non-blocking-io.svg
-:::
-
-::: text 🪜 Step by step
-What happens inside `fs.readFile('report.csv', cb)`:
-1. Your JS calls `fs.readFile`; Node validates arguments and asks libuv to read the file.
-2. libuv hands the read to a **thread-pool** thread (files) and returns immediately; your function finishes.
-3. The event loop keeps running other callbacks (other requests, timers).
-4. The pool thread finishes reading and signals completion.
-5. In the **poll** phase the loop runs `cb(null, data)` on the JS thread.
-6. For network I/O (an HTTP call), step 2 uses an OS readiness notification instead of a pool thread; the rest is identical.
-:::
-
-::: code javascript Blocking vs non-blocking reads (node io.js)
-// How to run: node io.js
-const fs = require('fs');
-const fsp = require('fs/promises');
-
-console.time('sync read');
-const data = fs.readFileSync(__filename, 'utf8');           // ❌ thread waits here
-console.timeEnd('sync read');
-console.log('sync read', data.length, 'chars, and only now does the next line run');
-
-fs.readFile(__filename, 'utf8', (err, content) => {          // ✅ callback style
-  if (err) return console.error(err);
-  return console.log('callback read', content.length, 'chars');
-});
-
-(async () => {                                                // ✅ promise style (preferred today)
-  const content = await fsp.readFile(__filename, 'utf8');
-  console.log('await read', content.length, 'chars');
-})();
-
-console.log('this line runs BEFORE the two async reads finish');
-:::
-
-::: code javascript Measure it yourself: health latency next to heavy requests (node block-vs-async.js)
-// How to run: node block-vs-async.js sync    and    node block-vs-async.js async
-const http = require('http');
-const crypto = require('crypto');
-const mode = process.argv[2] || 'async';
-
-const server = http.createServer((req, res) => {
-  if (req.url === '/heavy') {
-    if (mode === 'sync') {
-      crypto.pbkdf2Sync('pw', 'salt', 600000, 64, 'sha512');           // blocks the JS thread
-      return res.end('ok');
-    }
-    return crypto.pbkdf2('pw', 'salt', 600000, 64, 'sha512', () => res.end('ok')); // thread pool
-  }
-  return res.end('health');
-}).listen(0, async () => {
-  const { port } = server.address();
-  // 127.0.0.1 (not "localhost") so DNS lookups don't need the busy thread pool
-  const get = (path) => new Promise((resolve) => {
-    const t = Date.now();
-    http.get({ host: '127.0.0.1', port, path }, (res) => { res.resume(); res.on('end', () => resolve(Date.now() - t)); });
-  });
-  const heavy = Array.from({ length: 4 }, () => get('/heavy'));
-  await new Promise((r) => setTimeout(r, 20));
-  console.log(`${mode}: /health answered in ${await get('/health')} ms`);
-  await Promise.all(heavy);
-  server.close();
-});
-:::
-
-::: code javascript Browser demo: blocking vs non-blocking waits (runnable)
-// A "busy wait" blocks the only thread; a promise-based wait doesn't.
-const blockFor = (ms) => { const end = Date.now() + ms; while (Date.now() < end) { /* spinning */ } };
-const waitFor = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-
-async function measure(label, work) {
-  const start = Date.now();
-  let tickerRuns = 0;
-  const ticker = setInterval(() => tickerRuns++, 10);        // other "requests" wanting the thread
-  await work();
-  clearInterval(ticker);
-  console.log(`${label}: ${Date.now() - start} ms, other tasks ran ${tickerRuns} times`);
-  return tickerRuns;
-}
-
-(async () => {
-  const blocked = await measure('blocking 200 ms', async () => blockFor(200));
-  const free = await measure('non-blocking 200 ms', () => waitFor(200));
-  console.log('blocking starved the other tasks', blocked === 0 ? '✅' : '❌ FAIL');
-  console.log('non-blocking let them run', free >= 10 ? '✅' : '❌ FAIL');
-})();
-:::
-
-::: warning ⚠️ Common mistakes
-- `fs.readFileSync`, `bcrypt.hashSync`, `pbkdf2Sync`, `execSync` or `JSON.parse` of a 50 MB body **inside a route**.
-- Thinking `async function` makes a CPU loop non-blocking: the loop still runs on the main thread.
-- Forgetting the **thread pool limit** (4): many concurrent `fs`/`crypto` calls queue up behind each other.
-- Using `localhost` everywhere under heavy pool load: `dns.lookup` also needs the pool (measured: 105 ms vs 3 ms with `127.0.0.1`).
-:::
-
-::: understand
-- Non-blocking I/O is about **not waiting on the JS thread**; the work still happens somewhere (OS or pool threads).
-- Node's scalability comes from overlapping many waits; it doesn't make individual operations faster.
-- Fix CPU-bound work with **worker_threads**, a **queue + workers**, or a separate service, never with `async`.
-:::
-
-::: ask
-- *"Is this code on a hot request path or a one-off script?"* Sync APIs are fine for CLIs and startup.
-- If asked how to make CPU work non-blocking: *"Offload it: worker threads, child processes or a job queue."*
-- Trap: "non-blocking" ≠ "parallel JavaScript". Only one callback runs at a time.
-:::
-
-::: important ⭐ Say this in the interview
-"I/O means talking to disks, networks or databases. Blocking I/O makes the thread wait for the result, which in Node would freeze every request because there's one JavaScript thread. Non-blocking I/O starts the operation and returns immediately; libuv uses the operating system's async APIs or its thread pool, and the callback or promise runs when the data is ready. That's why I never use sync APIs like readFileSync or pbkdf2Sync in request handlers: in a quick test, a health check next to synchronous hashing took about 350 milliseconds, and with the async version about 3. For CPU-heavy work I use worker threads or a queue, because async alone doesn't help there."
-:::
-
-::: links
-Node.js: Overview of blocking vs non-blocking | https://nodejs.org/en/learn/asynchronous-work/overview-of-blocking-vs-non-blocking
-Node.js: Don't block the event loop | https://nodejs.org/en/learn/asynchronous-work/dont-block-the-event-loop
-libuv: Design overview (thread pool) | https://docs.libuv.org/en/v1.x/design.html
 :::
 
 === Node.js is single-threaded: what does that actually mean?
@@ -686,148 +342,179 @@ Node.js CLI: UV_THREADPOOL_SIZE | https://nodejs.org/api/cli.html#uv_threadpool_
 Node.js: Don't block the event loop (worker pool section) | https://nodejs.org/en/learn/asynchronous-work/dont-block-the-event-loop
 :::
 
-=== What are the event loop phases?
-@p 2
-@tags event-loop, phases
+=== What is non-blocking I/O?
+@p 3
+@tags io, async
 @quick
-- **timers → pending callbacks → idle/prepare → poll → check → close callbacks**, then repeat.
-- timers = `setTimeout`/`setInterval` · poll = I/O callbacks (and waiting) · check = `setImmediate` · close = `'close'` events.
-- Microtasks (`nextTick`, then Promises) run **between every callback**, in every phase.
-- The process exits when no timers, handles (servers, sockets) or pending requests remain.
-- Inside an I/O callback, `setImmediate` always runs before a 0 ms `setTimeout`.
+- **I/O** = disk, network, database, other services. **Blocking**: the thread waits for it. **Non-blocking**: start it, keep working, get notified later.
+- Node is built around non-blocking I/O, so **one thread serves many requests**.
+- Never use `*Sync` APIs (`readFileSync`, `pbkdf2Sync`) inside request handlers; they're fine at startup.
+- `async` doesn't make CPU work non-blocking; only I/O (or work moved to other threads) is non-blocking.
+- Measured: `/health` answered in **~3 ms** next to async hashing vs **~345 ms** next to sync hashing.
 
 ::: text 🧒 In simple words
-Picture a **security guard doing rounds** in a building with six rooms, always in the same order. In room 1 he checks alarm clocks that have gone off (timers). In room 4 he collects all the parcels that arrived (I/O). In room 5 he handles notes marked "do right after the parcels" (`setImmediate`). In room 6 he locks doors that were closed. Between handling *any* two items, he first reads his urgent sticky notes (microtasks). When there's nothing in any room and nobody is expected, he goes home (the process exits).
+**Blocking** is like standing at the microwave for three minutes watching your food spin: you can't do anything else. **Non-blocking** is pressing start, walking away to set the table, and coming back when it beeps. Computers spend a lot of time waiting for disks, networks and databases. With non-blocking I/O the program says "start reading this, tell me when you're done" and continues with other work, so a single worker can keep many tasks moving at once.
 :::
 
 ::: text 📖 Detailed answer
-Each iteration of the event loop is a **tick**. libuv visits the phases in a fixed order; each phase has a FIFO queue and runs its callbacks until the queue is empty (or a limit is reached).
+**I/O (input/output)** is any communication with the outside world: reading files, network sockets, HTTP calls, database queries.
 
-| # | Phase | What runs | Example |
-|---|---|---|---|
-| 1 | **timers** | Expired `setTimeout` / `setInterval` callbacks | Debounce timer, retry delay |
-| 2 | **pending callbacks** | Some system I/O callbacks deferred from the previous tick | TCP `ECONNREFUSED` reporting |
-| 3 | **idle, prepare** | Internal libuv housekeeping | — |
-| 4 | **poll** | New I/O events and their callbacks; **blocks waiting** for I/O if nothing else is scheduled | File read done, DB response, incoming request |
-| 5 | **check** | `setImmediate` callbacks | Work to do right after current I/O |
-| 6 | **close callbacks** | `'close'` events | `socket.on('close')` |
+| | Blocking I/O | Non-blocking I/O |
+|---|---|---|
+| What the thread does | Stops and waits until the data arrives | Continues immediately; result comes later |
+| Node examples | `fs.readFileSync`, `crypto.pbkdf2Sync`, `child_process.execSync` | `fs.promises.readFile`, `fetch`, DB drivers, `crypto.pbkdf2` with a callback |
+| Result delivery | Return value | Callback, Promise (`await`), event |
+| Effect in a Node server | **Every** request waits (one JS thread) | Other requests keep being served |
+| Where it's OK | Startup scripts, CLIs, config loading | Everywhere, especially request paths |
 
-### Microtasks between callbacks
-After **every** callback in any phase, Node runs the `process.nextTick` queue completely, then the Promise microtask queue completely, then continues the phase.
+### How Node achieves it
+- **Network I/O** uses the OS's readiness notifications (epoll/kqueue/IOCP): one thread can watch thousands of sockets.
+- **File system, DNS lookups, some crypto and compression** have no good async OS API everywhere, so libuv runs them on its **thread pool** and notifies the loop when done.
+- Your JS only runs the **callbacks**; it never sits waiting.
 
-### How the poll phase decides how long to wait
-- If `setImmediate` callbacks are queued → don't wait, go to **check**.
-- Else if timers are scheduled → wait at most until the nearest timer is due.
-- Else → wait for I/O indefinitely (a server idles here).
-
-### When does the process exit?
-When there are no active **handles** (listening servers, open sockets, active timers) and no pending **requests**. `timer.unref()` tells Node "don't keep the process alive just for this timer".
+### Measured on this machine (Node 22)
+A server received four "heavy" requests that each hash a password (600,000 PBKDF2 iterations) and then one `/health` request:
+- Handler uses `pbkdf2Sync` (blocking): `/health` waited **~345 ms**.
+- Handler uses `pbkdf2` with a callback (non-blocking, runs on the thread pool): `/health` answered in **~3 ms**.
 :::
 
-::: diagram One tick of the event loop
-flowchart LR
-  A(("tick start")) --> T["timers"] --> PC["pending callbacks"] --> IP["idle, prepare"] --> P["poll: I/O"] --> C["check: setImmediate"] --> CL["close callbacks"] --> Q{"anything left?"}
-  Q -->|"yes"| A
-  Q -->|"no"| X(("process exits"))
+::: diagram Blocking vs non-blocking server timeline
+sequenceDiagram
+  participant C1 as Request 1 (report)
+  participant N as Node JS thread
+  participant D as Disk / DB (libuv)
+  participant C2 as Request 2 (health)
+  C1->>N: GET /report
+  N->>D: readFile (non-blocking)
+  C2->>N: GET /health
+  N-->>C2: 200 immediately
+  D-->>N: data ready (callback)
+  N-->>C1: 200 with the report
 :::
 
-::: image The six phases as a loop, with the microtask checkpoint after every callback
-/images/node-core/loop-phases.svg
+::: chart bar Measured: /health latency while 4 heavy hashing requests run (Node 22, ms)
+Handler style,Health latency (ms)
+pbkdf2Sync (blocking),345
+pbkdf2 callback (non-blocking),3
+:::
+
+::: image Blocking vs non-blocking: the waiter who waits in the kitchen vs the one who keeps serving
+/images/node-core/non-blocking-io.svg
 :::
 
 ::: text 🪜 Step by step
-Trace the `phases.js` example below:
-1. The main script schedules `fs.readFile` and ends; the call stack is empty.
-2. The loop runs **timers** (none), **pending** (none) and arrives at **poll**, where it waits for the file read.
-3. The read completes → the callback runs **in the poll phase**: it prints, schedules a timer, a `setImmediate` and a `nextTick`.
-4. Callback done → **microtask checkpoint**: the `nextTick` prints immediately.
-5. Poll is empty and a `setImmediate` is queued → move to **check**: the immediate prints.
-6. Next tick → **timers**: the 0 ms timer is due and prints. Nothing remains → the process exits.
+What happens inside `fs.readFile('report.csv', cb)`:
+1. Your JS calls `fs.readFile`; Node validates arguments and asks libuv to read the file.
+2. libuv hands the read to a **thread-pool** thread (files) and returns immediately; your function finishes.
+3. The event loop keeps running other callbacks (other requests, timers).
+4. The pool thread finishes reading and signals completion.
+5. In the **poll** phase the loop runs `cb(null, data)` on the JS thread.
+6. For network I/O (an HTTP call), step 2 uses an OS readiness notification instead of a pool thread; the rest is identical.
 :::
 
-::: code javascript Seeing the phases in action (node phases.js)
-// How to run: node phases.js
+::: code javascript Blocking vs non-blocking reads (node io.js)
+// How to run: node io.js
 const fs = require('fs');
+const fsp = require('fs/promises');
 
-fs.readFile(__filename, () => {
-  console.log('1 poll phase: file read callback');
-  setTimeout(() => console.log('4 timers phase (next loop iteration)'), 0);
-  setImmediate(() => console.log('3 check phase (same iteration, right after poll)'));
-  process.nextTick(() => console.log('2 nextTick: right after this callback'));
+console.time('sync read');
+const data = fs.readFileSync(__filename, 'utf8');           // ❌ thread waits here
+console.timeEnd('sync read');
+console.log('sync read', data.length, 'chars, and only now does the next line run');
+
+fs.readFile(__filename, 'utf8', (err, content) => {          // ✅ callback style
+  if (err) return console.error(err);
+  return console.log('callback read', content.length, 'chars');
 });
-// Always prints 1, 2, 3, 4 in that order
+
+(async () => {                                                // ✅ promise style (preferred today)
+  const content = await fsp.readFile(__filename, 'utf8');
+  console.log('await read', content.length, 'chars');
+})();
+
+console.log('this line runs BEFORE the two async reads finish');
 :::
 
-::: code javascript Keeping or releasing the process (node handles.js)
-// How to run: node handles.js   (exits after ~1 s, not after 1 hour)
-const keepAlive = setTimeout(() => console.log('never printed'), 60 * 60 * 1000);
-keepAlive.unref();                        // this timer no longer keeps the process alive
+::: code javascript Measure it yourself: health latency next to heavy requests (node block-vs-async.js)
+// How to run: node block-vs-async.js sync    and    node block-vs-async.js async
+const http = require('http');
+const crypto = require('crypto');
+const mode = process.argv[2] || 'async';
 
-const t = setInterval(() => console.log('tick'), 300);
-setTimeout(() => {
-  clearInterval(t);                       // last active handle removed → loop has nothing left
-  console.log('no more handles: the process will exit now');
-}, 1000);
+const server = http.createServer((req, res) => {
+  if (req.url === '/heavy') {
+    if (mode === 'sync') {
+      crypto.pbkdf2Sync('pw', 'salt', 600000, 64, 'sha512');           // blocks the JS thread
+      return res.end('ok');
+    }
+    return crypto.pbkdf2('pw', 'salt', 600000, 64, 'sha512', () => res.end('ok')); // thread pool
+  }
+  return res.end('health');
+}).listen(0, async () => {
+  const { port } = server.address();
+  // 127.0.0.1 (not "localhost") so DNS lookups don't need the busy thread pool
+  const get = (path) => new Promise((resolve) => {
+    const t = Date.now();
+    http.get({ host: '127.0.0.1', port, path }, (res) => { res.resume(); res.on('end', () => resolve(Date.now() - t)); });
+  });
+  const heavy = Array.from({ length: 4 }, () => get('/heavy'));
+  await new Promise((r) => setTimeout(r, 20));
+  console.log(`${mode}: /health answered in ${await get('/health')} ms`);
+  await Promise.all(heavy);
+  server.close();
+});
 :::
 
-::: code javascript Browser demo: simulate one loop iteration with phase queues (runnable)
-// A tiny model of libuv's phases: run every phase in order, drain microtasks after each callback.
-function createLoop() {
-  const queues = { timers: [], poll: [], check: [], close: [] };
-  const micro = [];
-  const out = [];
-  const drainMicro = () => { while (micro.length) micro.shift()(); };
-  return {
-    queues, micro, out,
-    tick() {
-      for (const phase of ['timers', 'poll', 'check', 'close']) {
-        const q = queues[phase].splice(0);                 // callbacks queued during this phase wait for the next tick
-        for (const cb of q) { cb(); drainMicro(); }
-      }
-    },
-  };
+::: code javascript Browser demo: blocking vs non-blocking waits (runnable)
+// A "busy wait" blocks the only thread; a promise-based wait doesn't.
+const blockFor = (ms) => { const end = Date.now() + ms; while (Date.now() < end) { /* spinning */ } };
+const waitFor = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+async function measure(label, work) {
+  const start = Date.now();
+  let tickerRuns = 0;
+  const ticker = setInterval(() => tickerRuns++, 10);        // other "requests" wanting the thread
+  await work();
+  clearInterval(ticker);
+  console.log(`${label}: ${Date.now() - start} ms, other tasks ran ${tickerRuns} times`);
+  return tickerRuns;
 }
 
-const loop = createLoop();
-loop.queues.poll.push(() => {
-  loop.out.push('poll: file read');
-  loop.queues.timers.push(() => loop.out.push('timers: setTimeout 0'));
-  loop.queues.check.push(() => loop.out.push('check: setImmediate'));
-  loop.micro.push(() => loop.out.push('micro: nextTick'));
-});
-loop.tick();
-loop.tick();
-console.log(loop.out.join(' → '));
-console.log('same order as real Node', loop.out.join('|') === 'poll: file read|micro: nextTick|check: setImmediate|timers: setTimeout 0' ? '✅' : '❌ FAIL');
+(async () => {
+  const blocked = await measure('blocking 200 ms', async () => blockFor(200));
+  const free = await measure('non-blocking 200 ms', () => waitFor(200));
+  console.log('blocking starved the other tasks', blocked === 0 ? '✅' : '❌ FAIL');
+  console.log('non-blocking let them run', free >= 10 ? '✅' : '❌ FAIL');
+})();
 :::
 
 ::: warning ⚠️ Common mistakes
-- Listing phases but forgetting the **microtask checkpoint** after every callback.
-- Thinking `setImmediate` means "before everything": it's the **check** phase, after poll.
-- Expecting the main-module order of `setTimeout(0)` vs `setImmediate` to be stable (it depends on how fast the loop starts).
-- Wondering why a script never exits: an open server, socket, interval or DB connection is an **active handle**.
+- `fs.readFileSync`, `bcrypt.hashSync`, `pbkdf2Sync`, `execSync` or `JSON.parse` of a 50 MB body **inside a route**.
+- Thinking `async function` makes a CPU loop non-blocking: the loop still runs on the main thread.
+- Forgetting the **thread pool limit** (4): many concurrent `fs`/`crypto` calls queue up behind each other.
+- Using `localhost` everywhere under heavy pool load: `dns.lookup` also needs the pool (measured: 105 ms vs 3 ms with `127.0.0.1`).
 :::
 
 ::: understand
-- For interviews, **timers → poll → check** plus "microtasks between callbacks" covers 95% of questions.
-- The poll phase is where a server spends its life; that's why idle Node processes use almost no CPU.
-- `unref()` and closing connections are how you let scripts and tests exit cleanly.
+- Non-blocking I/O is about **not waiting on the JS thread**; the work still happens somewhere (OS or pool threads).
+- Node's scalability comes from overlapping many waits; it doesn't make individual operations faster.
+- Fix CPU-bound work with **worker_threads**, a **queue + workers**, or a separate service, never with `async`.
 :::
 
 ::: ask
-- *"Should I go into libuv internals or is the high-level order enough?"* Most interviewers want timers/poll/check + microtasks.
-- Mention you know the **Node 11+** change (microtasks between individual timer callbacks).
-- Trap: browser and Node differ; there's no `setImmediate` in browsers.
+- *"Is this code on a hot request path or a one-off script?"* Sync APIs are fine for CLIs and startup.
+- If asked how to make CPU work non-blocking: *"Offload it: worker threads, child processes or a job queue."*
+- Trap: "non-blocking" ≠ "parallel JavaScript". Only one callback runs at a time.
 :::
 
 ::: important ⭐ Say this in the interview
-"Each loop iteration goes through phases in order: timers for setTimeout and setInterval, pending callbacks for some deferred system errors, an internal idle/prepare phase, poll where I/O callbacks run and where the loop waits for new events, check for setImmediate, and close callbacks. After every single callback, Node drains process.nextTick and then the promise microtasks. That's why inside an I/O callback setImmediate always runs before a zero-millisecond timeout. The process exits once there are no active handles like servers, sockets or timers left."
+"I/O means talking to disks, networks or databases. Blocking I/O makes the thread wait for the result, which in Node would freeze every request because there's one JavaScript thread. Non-blocking I/O starts the operation and returns immediately; libuv uses the operating system's async APIs or its thread pool, and the callback or promise runs when the data is ready. That's why I never use sync APIs like readFileSync or pbkdf2Sync in request handlers: in a quick test, a health check next to synchronous hashing took about 350 milliseconds, and with the async version about 3. For CPU-heavy work I use worker threads or a queue, because async alone doesn't help there."
 :::
 
 ::: links
-Node.js: The event loop, timers and nextTick | https://nodejs.org/en/learn/asynchronous-work/event-loop-timers-and-nexttick
-libuv: The I/O loop | https://docs.libuv.org/en/v1.x/design.html#the-i-o-loop
-Node.js: timers (ref/unref) | https://nodejs.org/api/timers.html#timeoutunref
+Node.js: Overview of blocking vs non-blocking | https://nodejs.org/en/learn/asynchronous-work/overview-of-blocking-vs-non-blocking
+Node.js: Don't block the event loop | https://nodejs.org/en/learn/asynchronous-work/dont-block-the-event-loop
+libuv: Design overview (thread pool) | https://docs.libuv.org/en/v1.x/design.html
 :::
 
 === Difference between synchronous and asynchronous code
@@ -1346,6 +1033,319 @@ Node.js: process 'unhandledRejection' | https://nodejs.org/api/process.html#even
 Node.js best practices: error handling | https://github.com/goldbergyoni/nodebestpractices#2-error-handling-practices
 :::
 
+=== How does the Node.js event loop work? (explain with an example)
+@p 3
+@tags event-loop, libuv, async
+@quick
+- Your JS runs on **one call stack**; slow I/O is handed to **libuv / the OS**; finished work comes back as **callbacks in queues**.
+- Event loop = "when the call stack is empty, take the next callback from the queues and run it".
+- Order to remember: **sync code → `process.nextTick` → Promise microtasks → timers → I/O (poll) → `setImmediate` (check) → close**.
+- Microtasks (nextTick, then Promises) are drained **after every single callback** (Node 11+).
+- Never block the loop: CPU-heavy work → Worker Threads, a job queue or another service.
+
+::: text 🧒 In simple words
+Imagine a restaurant with **one very fast waiter** (the JavaScript thread). He never stands in the kitchen waiting for food. He takes an order, passes it to the kitchen (the operating system and libuv), and immediately serves the next table. When a dish is ready, the kitchen rings a bell and puts the plate on the counter (a **queue**). Whenever the waiter's hands are free, he picks up the next plate from the counter. That "check the counter whenever my hands are free" routine is the **event loop**. One waiter can serve hundreds of tables because most of the time is spent *waiting for the kitchen*, not carrying plates.
+:::
+
+::: text 📖 Detailed answer
+The **event loop** is the mechanism that lets Node.js perform **non-blocking I/O on a single JavaScript thread**.
+
+### The moving parts
+| Part | What it is | Example |
+|---|---|---|
+| **Call stack** | Where your JS functions execute, one at a time | `handler()` → `validate()` → `JSON.parse()` |
+| **libuv** | C library under Node: event loop + async I/O + thread pool | Reads files, DNS lookups, timers |
+| **OS async APIs** | epoll (Linux), kqueue (macOS), IOCP (Windows) for sockets | Thousands of open HTTP connections |
+| **Thread pool** | 4 threads by default (`UV_THREADPOOL_SIZE`) | `fs`, `crypto.pbkdf2`, `zlib`, `dns.lookup` |
+| **Macrotask queues** | One FIFO queue per loop phase | timers, poll (I/O), check (`setImmediate`), close |
+| **Microtask queues** | `process.nextTick` queue, then the Promise queue | `.then`, `await` continuations, `queueMicrotask` |
+
+### What happens when you call something slow
+- Your code calls `fs.readFile`, `fetch`, a MongoDB query or `setTimeout`.
+- Node registers the work with libuv and **returns immediately**; your function keeps running and finishes.
+- The OS or a pool thread does the work in the background.
+- When it completes, libuv puts the **callback** into the right phase queue.
+- When the call stack is empty, the loop runs that callback; after **each** callback it empties the microtask queues.
+
+### The six phases of one loop iteration ("tick")
+| Phase | Runs |
+|---|---|
+| **timers** | `setTimeout` / `setInterval` callbacks whose time has passed |
+| **pending callbacks** | some deferred system errors (e.g. TCP `ECONNREFUSED`) |
+| **idle, prepare** | internal |
+| **poll** | new I/O events and their callbacks (most of your code); waits here when idle |
+| **check** | `setImmediate` callbacks |
+| **close callbacks** | `socket.on('close')` and similar |
+
+### Browser vs Node
+Both have a call stack, a macrotask queue and a microtask queue. Node adds **phases**, `process.nextTick` and `setImmediate`; the browser adds **rendering** steps (requestAnimationFrame, paint) between tasks.
+:::
+
+::: diagram Event loop: the big picture
+flowchart LR
+  A["Your JS code"] --> B["Call Stack"]
+  B -->|"async call: fs, db, http, timer"| C["libuv: OS async I/O + thread pool"]
+  C -->|"work done"| D["Callback queues (per phase)"]
+  D --> E{"Event loop: is the stack empty?"}
+  E -->|"yes: run next callback"| B
+  M["Microtasks: nextTick, then Promises"] -.->|"drained after every callback"| B
+:::
+
+::: diagram The phases of one loop iteration
+flowchart TD
+  T["1 timers: setTimeout, setInterval"] --> P["2 pending callbacks"]
+  P --> I["3 idle / prepare"]
+  I --> PO["4 poll: I/O callbacks, waits for I/O"]
+  PO --> CH["5 check: setImmediate"]
+  CH --> CL["6 close callbacks"]
+  CL --> T
+:::
+
+::: image The event loop: call stack, libuv, phase queues and microtasks between every callback
+/images/node-core/event-loop.svg
+:::
+
+::: text 🪜 Step by step
+Walk through the classic snippet below exactly like the engine does:
+1. Run the whole script **synchronously**: print `1`, schedule a timer (timers queue), queue a `.then` (microtask), queue a `queueMicrotask` (microtask), call the async function which prints `2` synchronously and pauses at `await` (its continuation is a microtask), print `3`.
+2. The script ends → **call stack empty**.
+3. Drain **microtasks** in FIFO order: `4: promise.then`, `4b: queueMicrotask`, `4c: after await`.
+4. The loop enters the **timers** phase: the 0 ms timer is due → print `5`.
+5. Nothing else is scheduled → in a script, the process exits; in a server, the loop **waits in poll** for the next request.
+:::
+
+::: code javascript Browser demo: predict the order, then verify it (runnable)
+// Runs in the browser and in Node. We record the order instead of guessing it.
+const order = [];
+const log = (label) => order.push(label);
+
+log('1 sync start');
+setTimeout(() => log('5 setTimeout (macrotask)'), 0);
+Promise.resolve().then(() => log('4 promise.then (microtask)'));
+queueMicrotask(() => log('4b queueMicrotask (microtask)'));
+(async () => {
+  log('2 async fn body runs synchronously');
+  await null;                                  // everything after this is a microtask
+  log('4c after await (microtask)');
+})();
+log('3 sync end');
+
+setTimeout(() => {
+  const expected = ['1 sync start', '2 async fn body runs synchronously', '3 sync end',
+    '4 promise.then (microtask)', '4b queueMicrotask (microtask)', '4c after await (microtask)', '5 setTimeout (macrotask)'];
+  order.forEach((l) => console.log(l));
+  console.log('order matches the event-loop rules', JSON.stringify(order) === JSON.stringify(expected) ? '✅' : '❌ FAIL');
+  console.log('all microtasks ran before the timer', order.indexOf('5 setTimeout (macrotask)') === 6 ? '✅' : '❌ FAIL');
+}, 20);
+:::
+
+::: code javascript Node-only: nextTick, setImmediate and I/O (node event-loop.js)
+// How to run: save as event-loop.js, then: node event-loop.js
+const fs = require('fs');
+
+console.log('A: sync');
+setTimeout(() => console.log('E/F: timeout 0 (main module: order vs immediate not guaranteed)'), 0);
+setImmediate(() => console.log('E/F: immediate'));
+process.nextTick(() => console.log('B: nextTick (before promises)'));
+Promise.resolve().then(() => console.log('C: promise'));
+
+fs.readFile(__filename, () => {
+  // We are now in the POLL phase → CHECK (setImmediate) always comes before the next TIMERS phase
+  setTimeout(() => console.log('H: timeout inside I/O callback'), 0);
+  setImmediate(() => console.log('G: immediate inside I/O callback (always first here)'));
+});
+
+console.log('D: sync end');
+// Output: A, D, B, C, then E/F in either order, then G, H
+:::
+
+::: code javascript Blocking the event loop: a timer that fires late (node block.js)
+// How to run: node block.js
+const start = Date.now();
+setTimeout(() => console.log(`timer asked for 10 ms, fired after ${Date.now() - start} ms`), 10);
+
+let sum = 0;
+for (let i = 0; i < 3e8; i++) sum += i;          // ~300 ms of pure CPU on the ONLY JS thread
+console.log('heavy loop done', sum > 0);
+// The timer can only run after the loop finishes. In a server, every request waits like this timer.
+:::
+
+::: warning ⚠️ Common mistakes
+- Saying "Node is single-threaded" without qualifying it: **JS execution** is single-threaded; libuv and the OS use other threads.
+- Believing `setTimeout(fn, 0)` runs "immediately": it runs **after** the current code, all microtasks and the next timers phase (at least ~1 ms).
+- Putting CPU-heavy work (big loops, `JSON.parse` of huge payloads, sync crypto) in a request handler: it blocks **every** user.
+- Recursive `process.nextTick` or endless promise chains: microtasks run before I/O, so they can **starve** the loop.
+- Assuming the main-module order of `setTimeout(0)` vs `setImmediate` is fixed (it isn't; inside an I/O callback it is).
+:::
+
+::: understand
+- The loop exists so one thread can **wait on thousands of I/O operations at once**; waiting costs almost nothing, computing blocks everyone.
+- **Microtasks before macrotasks** is the rule that explains almost every "predict the output" question.
+- In production, event-loop health is a metric: monitor **event loop lag/utilisation** (`perf_hooks.monitorEventLoopDelay`).
+:::
+
+::: ask
+- *"Do you mean the browser event loop or Node's libuv event loop?"* They differ (phases, `nextTick`, `setImmediate`).
+- *"Which Node version?"* Since **Node 11**, microtasks run between each timer callback; older versions ran the whole timers queue first.
+- For a puzzle: *"Is this in the main module or inside an I/O callback?"* (decides timeout vs immediate order).
+- Trap: don't promise exact timer precision; timers are "not earlier than", never "exactly at".
+:::
+
+::: important ⭐ Say this in the interview
+"Node runs my JavaScript on a single thread with an event loop. When I start I/O such as a file read, a database query or an HTTP call, Node hands it to libuv, which uses the operating system's async APIs or a small thread pool, and my code continues. When the work finishes, its callback is queued. The event loop runs queued callbacks in phases (timers, poll for I/O, check for setImmediate, close) whenever the call stack is empty, and after each callback it drains microtasks: process.nextTick first, then promises. That's why one Node process handles thousands of concurrent connections cheaply, and why CPU-heavy code must go to worker threads or another service instead of the main thread."
+:::
+
+::: links
+Node.js docs: The event loop, timers and nextTick | https://nodejs.org/en/learn/asynchronous-work/event-loop-timers-and-nexttick
+Node.js docs: Don't block the event loop | https://nodejs.org/en/learn/asynchronous-work/dont-block-the-event-loop
+libuv design overview | https://docs.libuv.org/en/v1.x/design.html
+Talk: What the heck is the event loop anyway? (Philip Roberts) | https://www.youtube.com/watch?v=8aGhZQkoFbQ
+:::
+
+=== What are the event loop phases?
+@p 2
+@tags event-loop, phases
+@quick
+- **timers → pending callbacks → idle/prepare → poll → check → close callbacks**, then repeat.
+- timers = `setTimeout`/`setInterval` · poll = I/O callbacks (and waiting) · check = `setImmediate` · close = `'close'` events.
+- Microtasks (`nextTick`, then Promises) run **between every callback**, in every phase.
+- The process exits when no timers, handles (servers, sockets) or pending requests remain.
+- Inside an I/O callback, `setImmediate` always runs before a 0 ms `setTimeout`.
+
+::: text 🧒 In simple words
+Picture a **security guard doing rounds** in a building with six rooms, always in the same order. In room 1 he checks alarm clocks that have gone off (timers). In room 4 he collects all the parcels that arrived (I/O). In room 5 he handles notes marked "do right after the parcels" (`setImmediate`). In room 6 he locks doors that were closed. Between handling *any* two items, he first reads his urgent sticky notes (microtasks). When there's nothing in any room and nobody is expected, he goes home (the process exits).
+:::
+
+::: text 📖 Detailed answer
+Each iteration of the event loop is a **tick**. libuv visits the phases in a fixed order; each phase has a FIFO queue and runs its callbacks until the queue is empty (or a limit is reached).
+
+| # | Phase | What runs | Example |
+|---|---|---|---|
+| 1 | **timers** | Expired `setTimeout` / `setInterval` callbacks | Debounce timer, retry delay |
+| 2 | **pending callbacks** | Some system I/O callbacks deferred from the previous tick | TCP `ECONNREFUSED` reporting |
+| 3 | **idle, prepare** | Internal libuv housekeeping | — |
+| 4 | **poll** | New I/O events and their callbacks; **blocks waiting** for I/O if nothing else is scheduled | File read done, DB response, incoming request |
+| 5 | **check** | `setImmediate` callbacks | Work to do right after current I/O |
+| 6 | **close callbacks** | `'close'` events | `socket.on('close')` |
+
+### Microtasks between callbacks
+After **every** callback in any phase, Node runs the `process.nextTick` queue completely, then the Promise microtask queue completely, then continues the phase.
+
+### How the poll phase decides how long to wait
+- If `setImmediate` callbacks are queued → don't wait, go to **check**.
+- Else if timers are scheduled → wait at most until the nearest timer is due.
+- Else → wait for I/O indefinitely (a server idles here).
+
+### When does the process exit?
+When there are no active **handles** (listening servers, open sockets, active timers) and no pending **requests**. `timer.unref()` tells Node "don't keep the process alive just for this timer".
+:::
+
+::: diagram One tick of the event loop
+flowchart LR
+  A(("tick start")) --> T["timers"] --> PC["pending callbacks"] --> IP["idle, prepare"] --> P["poll: I/O"] --> C["check: setImmediate"] --> CL["close callbacks"] --> Q{"anything left?"}
+  Q -->|"yes"| A
+  Q -->|"no"| X(("process exits"))
+:::
+
+::: image The six phases as a loop, with the microtask checkpoint after every callback
+/images/node-core/loop-phases.svg
+:::
+
+::: text 🪜 Step by step
+Trace the `phases.js` example below:
+1. The main script schedules `fs.readFile` and ends; the call stack is empty.
+2. The loop runs **timers** (none), **pending** (none) and arrives at **poll**, where it waits for the file read.
+3. The read completes → the callback runs **in the poll phase**: it prints, schedules a timer, a `setImmediate` and a `nextTick`.
+4. Callback done → **microtask checkpoint**: the `nextTick` prints immediately.
+5. Poll is empty and a `setImmediate` is queued → move to **check**: the immediate prints.
+6. Next tick → **timers**: the 0 ms timer is due and prints. Nothing remains → the process exits.
+:::
+
+::: code javascript Seeing the phases in action (node phases.js)
+// How to run: node phases.js
+const fs = require('fs');
+
+fs.readFile(__filename, () => {
+  console.log('1 poll phase: file read callback');
+  setTimeout(() => console.log('4 timers phase (next loop iteration)'), 0);
+  setImmediate(() => console.log('3 check phase (same iteration, right after poll)'));
+  process.nextTick(() => console.log('2 nextTick: right after this callback'));
+});
+// Always prints 1, 2, 3, 4 in that order
+:::
+
+::: code javascript Keeping or releasing the process (node handles.js)
+// How to run: node handles.js   (exits after ~1 s, not after 1 hour)
+const keepAlive = setTimeout(() => console.log('never printed'), 60 * 60 * 1000);
+keepAlive.unref();                        // this timer no longer keeps the process alive
+
+const t = setInterval(() => console.log('tick'), 300);
+setTimeout(() => {
+  clearInterval(t);                       // last active handle removed → loop has nothing left
+  console.log('no more handles: the process will exit now');
+}, 1000);
+:::
+
+::: code javascript Browser demo: simulate one loop iteration with phase queues (runnable)
+// A tiny model of libuv's phases: run every phase in order, drain microtasks after each callback.
+function createLoop() {
+  const queues = { timers: [], poll: [], check: [], close: [] };
+  const micro = [];
+  const out = [];
+  const drainMicro = () => { while (micro.length) micro.shift()(); };
+  return {
+    queues, micro, out,
+    tick() {
+      for (const phase of ['timers', 'poll', 'check', 'close']) {
+        const q = queues[phase].splice(0);                 // callbacks queued during this phase wait for the next tick
+        for (const cb of q) { cb(); drainMicro(); }
+      }
+    },
+  };
+}
+
+const loop = createLoop();
+loop.queues.poll.push(() => {
+  loop.out.push('poll: file read');
+  loop.queues.timers.push(() => loop.out.push('timers: setTimeout 0'));
+  loop.queues.check.push(() => loop.out.push('check: setImmediate'));
+  loop.micro.push(() => loop.out.push('micro: nextTick'));
+});
+loop.tick();
+loop.tick();
+console.log(loop.out.join(' → '));
+console.log('same order as real Node', loop.out.join('|') === 'poll: file read|micro: nextTick|check: setImmediate|timers: setTimeout 0' ? '✅' : '❌ FAIL');
+:::
+
+::: warning ⚠️ Common mistakes
+- Listing phases but forgetting the **microtask checkpoint** after every callback.
+- Thinking `setImmediate` means "before everything": it's the **check** phase, after poll.
+- Expecting the main-module order of `setTimeout(0)` vs `setImmediate` to be stable (it depends on how fast the loop starts).
+- Wondering why a script never exits: an open server, socket, interval or DB connection is an **active handle**.
+:::
+
+::: understand
+- For interviews, **timers → poll → check** plus "microtasks between callbacks" covers 95% of questions.
+- The poll phase is where a server spends its life; that's why idle Node processes use almost no CPU.
+- `unref()` and closing connections are how you let scripts and tests exit cleanly.
+:::
+
+::: ask
+- *"Should I go into libuv internals or is the high-level order enough?"* Most interviewers want timers/poll/check + microtasks.
+- Mention you know the **Node 11+** change (microtasks between individual timer callbacks).
+- Trap: browser and Node differ; there's no `setImmediate` in browsers.
+:::
+
+::: important ⭐ Say this in the interview
+"Each loop iteration goes through phases in order: timers for setTimeout and setInterval, pending callbacks for some deferred system errors, an internal idle/prepare phase, poll where I/O callbacks run and where the loop waits for new events, check for setImmediate, and close callbacks. After every single callback, Node drains process.nextTick and then the promise microtasks. That's why inside an I/O callback setImmediate always runs before a zero-millisecond timeout. The process exits once there are no active handles like servers, sockets or timers left."
+:::
+
+::: links
+Node.js: The event loop, timers and nextTick | https://nodejs.org/en/learn/asynchronous-work/event-loop-timers-and-nexttick
+libuv: The I/O loop | https://docs.libuv.org/en/v1.x/design.html#the-i-o-loop
+Node.js: timers (ref/unref) | https://nodejs.org/api/timers.html#timeoutunref
+:::
+
 === Difference between process.nextTick(), setImmediate() and setTimeout()
 @p 3
 @tags event-loop, nextTick, setImmediate
@@ -1481,6 +1481,336 @@ setTimeout(() => {
 Node.js: Understanding process.nextTick() | https://nodejs.org/en/learn/asynchronous-work/understanding-processnexttick
 Node.js: Understanding setImmediate() | https://nodejs.org/en/learn/asynchronous-work/understanding-setimmediate
 Node.js: The event loop, timers and nextTick | https://nodejs.org/en/learn/asynchronous-work/event-loop-timers-and-nexttick
+:::
+
+=== What is EventEmitter?
+@p 2
+@tags events, observer-pattern
+@quick
+- `EventEmitter` (module `events`) is Node's **observer / pub-sub** implementation: `on`, `once`, `emit`, `off`.
+- `emit` calls listeners **synchronously**, in registration order; a slow listener delays the emitter.
+- HTTP servers, streams, sockets and `process` all extend EventEmitter.
+- An `'error'` event with **no listener throws** and crashes the process; always listen for `'error'`.
+- Remove listeners you no longer need; the "MaxListenersExceededWarning" (default 10) usually means a leak.
+
+::: text 🧒 In simple words
+EventEmitter is a **school notice board with subscriptions**. Students sign up for topics ("sports", "exams"). When the teacher pins a notice about "sports" (`emit`), every student who subscribed to sports gets it, one after another, right away. The teacher doesn't need to know who's listening, which keeps things decoupled: the order system just announces "order placed", and the email, inventory and analytics modules react on their own. If someone announces an "error" and nobody is listening for errors, the school alarm goes off (the process crashes).
+:::
+
+::: text 📖 Detailed answer
+`EventEmitter` implements the **Observer pattern**: an object emits **named events**, and **listeners** subscribed to those names are called with the event's arguments.
+
+### API
+| Method | Purpose |
+|---|---|
+| `on(name, fn)` / `addListener` | Subscribe |
+| `once(name, fn)` | Subscribe for one call only |
+| `emit(name, ...args)` | Call all listeners synchronously; returns `true` if any existed |
+| `off(name, fn)` / `removeListener` | Unsubscribe that exact function |
+| `prependListener(name, fn)` | Subscribe at the front |
+| `listenerCount(name)` | How many listeners |
+| `setMaxListeners(n)` | Change the leak warning threshold (default 10) |
+| `events.once(emitter, name)` | Promise that resolves on the next event (`await` it) |
+| `events.on(emitter, name)` | Async iterator over events |
+
+### Behaviour that matters
+- **Synchronous**: `emit` runs every listener before returning. Use `setImmediate`/queues inside listeners for slow work.
+- **Error event**: `emit('error', err)` without a listener **throws** `err`.
+- **Ordering**: listeners run in the order they were added.
+- **Scope**: in-process only. Across servers use Redis pub/sub, SNS/SQS, Kafka or RabbitMQ.
+
+### Where you see it
+| Object | Events |
+|---|---|
+| `http.Server` | `'request'`, `'connection'`, `'close'` |
+| Streams | `'data'`, `'end'`, `'error'`, `'drain'`, `'finish'` |
+| `process` | `'exit'`, `'SIGTERM'`, `'unhandledRejection'` |
+| Mongoose connection | `'connected'`, `'error'`, `'disconnected'` |
+:::
+
+::: diagram Emit calls every subscriber synchronously
+sequenceDiagram
+  participant OS as OrderService
+  participant EM as EventEmitter
+  participant E as Email listener
+  participant I as Inventory listener
+  OS->>EM: emit order:placed (order 42)
+  EM->>E: listener 1 (sync)
+  E-->>EM: done
+  EM->>I: listener 2 (sync)
+  I-->>EM: done
+  EM-->>OS: emit returns true
+:::
+
+::: image Publish/subscribe with EventEmitter: one emitter, many decoupled listeners, and the error rule
+/images/node-core/event-emitter.svg
+:::
+
+::: text 🪜 Step by step
+What `orders.emit('order:placed', order)` does:
+1. Looks up the array of listeners for `'order:placed'` (copying it, so changes during emit don't affect this call).
+2. Calls listener 1 with `order` and waits for it to return (synchronously).
+3. Calls listener 2, then 3… in registration order; `once` listeners remove themselves before running.
+4. Returns `true` because at least one listener existed.
+5. For `emit('error', err)`: if no `'error'` listener exists, Node throws `err`, which crashes the process unless caught.
+6. Async listeners (`async (o) => …`) start, return a Promise that `emit` **ignores**, so handle their errors inside them.
+:::
+
+::: code javascript Order events with EventEmitter (node events.js)
+// How to run: node events.js
+const EventEmitter = require('events');
+const { once } = require('events');
+
+class OrderService extends EventEmitter {
+  placeOrder(order) {
+    // ...save to the database here
+    this.emit('order:placed', order);          // the service doesn't know who is listening
+    return order;
+  }
+}
+
+const orders = new OrderService();
+orders.on('order:placed', (o) => console.log(`📧 email queued for order ${o.id}`));
+orders.on('order:placed', (o) => console.log(`📦 reserved ${o.items.length} items`));
+orders.once('order:placed', () => console.log('🎉 first order ever!'));
+orders.on('error', (err) => console.error('handled error:', err.message));   // never leave 'error' unhandled
+
+orders.placeOrder({ id: 1, items: ['book', 'pen'] });
+orders.placeOrder({ id: 2, items: ['laptop'] });
+orders.emit('error', new Error('payment gateway down'));
+
+(async () => {
+  setTimeout(() => orders.placeOrder({ id: 3, items: ['mug'] }), 50);
+  const [next] = await once(orders, 'order:placed');                      // await the next event
+  console.log('awaited order', next.id, '| listeners now:', orders.listenerCount('order:placed'));
+})();
+:::
+
+::: code javascript Browser demo: build a mini EventEmitter and test it (runnable)
+class MyEmitter {
+  constructor() { this.events = new Map(); }
+  on(name, fn) {
+    if (!this.events.has(name)) this.events.set(name, []);
+    this.events.get(name).push(fn);
+    return () => this.off(name, fn);                       // return an unsubscribe function
+  }
+  once(name, fn) {
+    const wrapper = (...args) => { this.off(name, wrapper); fn(...args); };
+    return this.on(name, wrapper);
+  }
+  off(name, fn) {
+    this.events.set(name, (this.events.get(name) || []).filter((l) => l !== fn));
+  }
+  emit(name, ...args) {
+    const list = [...(this.events.get(name) || [])];      // copy: listeners may unsubscribe while we emit
+    if (name === 'error' && list.length === 0) throw args[0];
+    list.forEach((fn) => fn(...args));
+    return list.length > 0;
+  }
+}
+
+const e = new MyEmitter();
+const calls = [];
+const unsub = e.on('greet', (n) => calls.push(`hello ${n}`));
+e.once('greet', (n) => calls.push(`once ${n}`));
+e.emit('greet', 'A');
+e.emit('greet', 'B');
+unsub();
+const hadListeners = e.emit('greet', 'C');
+
+console.log(calls.join(' | '));
+console.log('listeners run in order, once only once', calls.join('|') === 'hello A|once A|hello B' ? '✅' : '❌ FAIL');
+console.log('unsubscribe works', hadListeners === false ? '✅' : '❌ FAIL');
+let threw = false;
+try { e.emit('error', new Error('boom')); } catch (err) { threw = err.message === 'boom'; }
+console.log('unhandled "error" event throws', threw ? '✅' : '❌ FAIL');
+let order = '';
+e.on('sync', () => { order += 'listener '; });
+e.emit('sync');
+order += 'after-emit';
+console.log('emit is synchronous', order === 'listener after-emit' ? '✅' : '❌ FAIL');
+:::
+
+::: warning ⚠️ Common mistakes
+- No `'error'` listener → one emitted error crashes the server.
+- Adding listeners inside a request handler and never removing them → memory leak and MaxListeners warning.
+- Expecting `emit` to wait for `async` listeners (it ignores their Promises, and their errors become unhandled).
+- Using EventEmitter for cross-service messaging: it only works inside one process.
+- Removing a listener with a different function reference (e.g. a new arrow function) → nothing is removed.
+:::
+
+::: understand
+- EventEmitter is the backbone of Node's own APIs (streams, servers, `process`).
+- It's great for **decoupling modules in one process**; for durability or multiple servers, use a queue or pub/sub system.
+- Synchronous emit = predictable order, but listeners must be fast.
+:::
+
+::: ask
+- If asked to implement one: *"Should `emit` be sync or async? Should `on` return an unsubscribe? Do we need `once` and wildcards?"*
+- *"Does this need to survive restarts or work across instances?"* → a message broker instead.
+- Trap: async listeners and error handling.
+:::
+
+::: important ⭐ Say this in the interview
+"EventEmitter is Node's implementation of the observer pattern: objects emit named events and listeners registered with on or once are called with the event data. Node's own HTTP servers, streams and the process object are emitters. Emit is synchronous, listeners run in registration order, and if an error event is emitted with no listener, Node throws and the process crashes, so I always handle error. I use it to decouple modules inside a process, like an order service announcing order placed while email and inventory listeners react, and I remove listeners to avoid leaks. For communication across instances or durable events I'd use Redis pub/sub, SNS/SQS or Kafka instead."
+:::
+
+::: links
+Node.js: Events | https://nodejs.org/api/events.html
+Node.js: events.once | https://nodejs.org/api/events.html#eventsonceemitter-name-options
+Refactoring Guru: Observer pattern | https://refactoring.guru/design-patterns/observer
+:::
+
+=== What are Buffers?
+@p 2
+@tags buffer, binary
+@quick
+- A **Buffer** is a fixed-length sequence of **bytes** (0–255), Node's type for binary data; it's a subclass of `Uint8Array`.
+- Used for files, network packets, images, crypto, compression; stream chunks are Buffers.
+- `buf.length` counts **bytes**, not characters: `'न'` is 3 bytes in UTF-8, an emoji is 4.
+- Encodings: `utf8` (default), `base64`, `base64url`, `hex`, `latin1`; base64 makes data **~33% bigger**.
+- Use `Buffer.alloc` (zero-filled) rather than `allocUnsafe` (may contain old memory) unless you overwrite it fully.
+
+::: text 🧒 In simple words
+Computers store everything as **numbers from 0 to 255** (bytes). Text, photos and music are just long rows of these numbers. A JavaScript string is text meant for people; a **Buffer is the raw row of numbers** meant for machines. When Node reads a photo or receives data from the network, it gets a Buffer. To show text you **decode** the bytes (UTF-8), and to send binary inside text formats like JSON you **encode** it (base64), which makes it about a third bigger, like packing fragile items with extra bubble wrap.
+:::
+
+::: text 📖 Detailed answer
+JavaScript strings are sequences of UTF-16 code units, which is great for text but wrong for binary data. A **Buffer** is a fixed-size chunk of memory holding raw bytes.
+
+- Implemented as a subclass of **`Uint8Array`**: indexes, `slice`/`subarray`, typed-array methods all work.
+- Memory for large Buffers is allocated **outside the V8 heap**, which is efficient for big binary data.
+- Small allocations come from a shared pool (`Buffer.poolSize` = 8 KB), which is why `allocUnsafe` can expose old bytes.
+
+### Common operations
+| Code | Meaning |
+|---|---|
+| `Buffer.from('Hello')` | string → bytes (UTF-8 by default) |
+| `Buffer.from('SGVsbG8=', 'base64')` | base64 text → bytes |
+| `Buffer.alloc(10)` | 10 zero-filled bytes (safe) |
+| `Buffer.allocUnsafe(10)` | 10 bytes, **not** cleared (faster, may leak old data) |
+| `buf.toString('hex' / 'base64' / 'utf8')` | bytes → text |
+| `Buffer.concat([a, b])` | join chunks (e.g. collecting a stream) |
+| `Buffer.byteLength(str)` | how many bytes a string needs |
+| `buf.equals(other)` / `crypto.timingSafeEqual(a, b)` | compare (timing-safe for secrets) |
+
+### Bytes vs characters (UTF-8)
+| Character | `str.length` | Bytes |
+|---|---|---|
+| `A` | 1 | 1 |
+| `é` | 1 | 2 |
+| `न` | 1 | 3 |
+| `😀` | 2 | 4 |
+
+### base64 overhead
+Every 3 bytes become 4 characters: 1 MB (1,048,576 bytes) → **1,398,104** base64 characters (+33%). That's why files go to S3 as binary streams, not as base64 inside JSON.
+:::
+
+::: diagram From text to bytes and back
+flowchart LR
+  S["string 'Hi न'"] -->|"Buffer.from(str, 'utf8')"| B["Buffer: 48 69 20 e0 a4 a8"]
+  B -->|"toString('utf8')"| S
+  B -->|"toString('base64')"| E["'SGkg4KSo' (text-safe)"]
+  E -->|"Buffer.from(x, 'base64')"| B
+  B -->|"toString('hex')"| H["'486920e0a4a8'"]
+:::
+
+::: chart bar UTF-8 bytes needed per character (exact)
+Character,Bytes
+A (ASCII),1
+é (Latin),2
+न (Devanagari),3
+😀 (emoji),4
+:::
+
+::: image A Buffer is a row of bytes: how "Hi न" is stored in UTF-8 and how base64 regroups it
+/images/node-core/buffer-bytes.svg
+:::
+
+::: text 🪜 Step by step
+What happens in `Buffer.from('Hi न').toString('base64')`:
+1. Node encodes each character with UTF-8: `H` → `0x48`, `i` → `0x69`, space → `0x20`, `न` (U+0928) → three bytes `0xE0 0xA4 0xA8`.
+2. It allocates a 6-byte Buffer and copies those bytes in.
+3. `toString('base64')` takes the bytes **3 at a time** (24 bits) and splits them into four 6-bit groups.
+4. Each 6-bit value (0–63) maps to a character in `A–Z a–z 0–9 + /` → `SGkg4KSo`.
+5. If the byte count isn't a multiple of 3, `=` padding is added (`base64url` drops it and uses `-` `_`).
+6. Decoding reverses the steps; decoding with the **wrong** encoding (e.g. `latin1`) produces garbled text.
+:::
+
+::: code javascript Buffer basics (node buffer.js)
+// How to run: node buffer.js
+const text = 'Hello, नमस्ते';
+const buf = Buffer.from(text);                                   // UTF-8 by default
+console.log(buf);                                                // <Buffer 48 65 6c 6c 6f 2c 20 e0 a4 a8 ...>
+console.log('characters:', text.length, 'bytes:', buf.length);   // bytes > characters for non-ASCII
+
+console.log('base64:', buf.toString('base64'));
+console.log('hex:', buf.toString('hex'));
+console.log('decoded:', Buffer.from('SGVsbG8=', 'base64').toString());   // Hello
+
+const basicAuth = 'Basic ' + Buffer.from('user:password').toString('base64');
+console.log('Authorization header:', basicAuth);
+
+// Collect stream chunks, then decode once (avoids splitting multi-byte characters)
+const { Readable } = require('stream');
+const chunks = [];
+Readable.from([Buffer.from([0xe0, 0xa4]), Buffer.from([0xa8])])  // "न" split across two chunks!
+  .on('data', (c) => chunks.push(c))
+  .on('end', () => console.log('joined correctly:', Buffer.concat(chunks).toString()));
+
+// Comparing secrets: constant-time
+const crypto = require('crypto');
+const a = Buffer.from('token-123'), b = Buffer.from('token-123');
+console.log('timing-safe equal:', a.length === b.length && crypto.timingSafeEqual(a, b));
+:::
+
+::: code javascript Browser demo: bytes, UTF-8 and base64 with Uint8Array (runnable)
+// Browsers have no Buffer, but TextEncoder + Uint8Array show the same ideas.
+const bytes = new TextEncoder().encode('Hi न');
+console.log('bytes:', Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join(' '));
+console.log('6 bytes for 4 characters', bytes.length === 6 && 'Hi न'.length === 4 ? '✅' : '❌ FAIL');
+console.log('न is e0 a4 a8 in UTF-8', bytes[3] === 0xe0 && bytes[4] === 0xa4 && bytes[5] === 0xa8 ? '✅' : '❌ FAIL');
+
+const toBase64 = (u8) => btoa(String.fromCharCode(...u8));
+const b64 = toBase64(bytes);
+console.log('base64:', b64, b64 === 'SGkg4KSo' ? '✅' : '❌ FAIL');
+
+const back = new TextDecoder().decode(Uint8Array.from(atob(b64), (c) => c.charCodeAt(0)));
+console.log('round trip →', back, back === 'Hi न' ? '✅' : '❌ FAIL');
+
+const overhead = (n) => 4 * Math.ceil(n / 3);
+console.log('1 MB as base64 =', overhead(1048576), 'chars (+33%)', overhead(1048576) === 1398104 ? '✅' : '❌ FAIL');
+console.log('emoji: 2 UTF-16 units, 4 bytes', '😀'.length === 2 && new TextEncoder().encode('😀').length === 4 ? '✅' : '❌ FAIL');
+:::
+
+::: warning ⚠️ Common mistakes
+- Using `str.length` as a byte size (e.g. `Content-Length`): use `Buffer.byteLength(str)`.
+- Decoding each stream chunk separately → broken multi-byte characters at chunk borders.
+- `Buffer.allocUnsafe` without overwriting every byte → may expose old memory (secrets).
+- Sending files as base64 in JSON (33% bigger, more memory, slower) instead of binary/multipart/streams.
+- Comparing secrets with `===` or `buf.equals` instead of `crypto.timingSafeEqual`.
+:::
+
+::: understand
+- Text is an **interpretation** of bytes; the encoding is the dictionary. Wrong dictionary → garbage.
+- Buffers are how Node speaks to files, sockets and crypto; streams move Buffers in chunks.
+- base64 is for putting bytes **into text channels** (JSON, headers, data URLs), not for storage efficiency.
+:::
+
+::: ask
+- *"Why not just use strings?"* Binary data isn't valid UTF-8; converting corrupts it and wastes memory.
+- *"Where does the data go next: S3, a DB, the browser?"* Decides binary vs base64.
+- Trap: `Buffer` vs `ArrayBuffer`/`Uint8Array` in browsers; Node's Buffer *is* a `Uint8Array`.
+:::
+
+::: important ⭐ Say this in the interview
+"A Buffer is Node's representation of raw binary data: a fixed-length sequence of bytes, implemented as a Uint8Array. Files, network packets, images and crypto all work with Buffers, and stream chunks are Buffers. Converting between text and bytes needs an encoding: UTF-8 by default, where a Hindi character takes three bytes and an emoji four, so string length is not byte length. base64 turns bytes into text-safe characters but makes them about a third bigger, so I upload files as binary streams rather than base64 in JSON. I prefer Buffer.alloc over allocUnsafe, collect chunks with Buffer.concat before decoding, and compare secrets with timingSafeEqual."
+:::
+
+::: links
+Node.js: Buffer | https://nodejs.org/api/buffer.html
+MDN: TextEncoder | https://developer.mozilla.org/en-US/docs/Web/API/TextEncoder
+MDN: Base64 | https://developer.mozilla.org/en-US/docs/Glossary/Base64
 :::
 
 === What are streams in Node.js?
@@ -1680,334 +2010,4 @@ function createSlowWritable(highWaterMark, msPerChunk) {
 Node.js: Stream API | https://nodejs.org/api/stream.html
 Node.js: Backpressuring in streams | https://nodejs.org/en/learn/modules/backpressuring-in-streams
 Node.js: stream.pipeline | https://nodejs.org/api/stream.html#streampipelinesource-transforms-destination-options
-:::
-
-=== What are Buffers?
-@p 2
-@tags buffer, binary
-@quick
-- A **Buffer** is a fixed-length sequence of **bytes** (0–255), Node's type for binary data; it's a subclass of `Uint8Array`.
-- Used for files, network packets, images, crypto, compression; stream chunks are Buffers.
-- `buf.length` counts **bytes**, not characters: `'न'` is 3 bytes in UTF-8, an emoji is 4.
-- Encodings: `utf8` (default), `base64`, `base64url`, `hex`, `latin1`; base64 makes data **~33% bigger**.
-- Use `Buffer.alloc` (zero-filled) rather than `allocUnsafe` (may contain old memory) unless you overwrite it fully.
-
-::: text 🧒 In simple words
-Computers store everything as **numbers from 0 to 255** (bytes). Text, photos and music are just long rows of these numbers. A JavaScript string is text meant for people; a **Buffer is the raw row of numbers** meant for machines. When Node reads a photo or receives data from the network, it gets a Buffer. To show text you **decode** the bytes (UTF-8), and to send binary inside text formats like JSON you **encode** it (base64), which makes it about a third bigger, like packing fragile items with extra bubble wrap.
-:::
-
-::: text 📖 Detailed answer
-JavaScript strings are sequences of UTF-16 code units, which is great for text but wrong for binary data. A **Buffer** is a fixed-size chunk of memory holding raw bytes.
-
-- Implemented as a subclass of **`Uint8Array`**: indexes, `slice`/`subarray`, typed-array methods all work.
-- Memory for large Buffers is allocated **outside the V8 heap**, which is efficient for big binary data.
-- Small allocations come from a shared pool (`Buffer.poolSize` = 8 KB), which is why `allocUnsafe` can expose old bytes.
-
-### Common operations
-| Code | Meaning |
-|---|---|
-| `Buffer.from('Hello')` | string → bytes (UTF-8 by default) |
-| `Buffer.from('SGVsbG8=', 'base64')` | base64 text → bytes |
-| `Buffer.alloc(10)` | 10 zero-filled bytes (safe) |
-| `Buffer.allocUnsafe(10)` | 10 bytes, **not** cleared (faster, may leak old data) |
-| `buf.toString('hex' / 'base64' / 'utf8')` | bytes → text |
-| `Buffer.concat([a, b])` | join chunks (e.g. collecting a stream) |
-| `Buffer.byteLength(str)` | how many bytes a string needs |
-| `buf.equals(other)` / `crypto.timingSafeEqual(a, b)` | compare (timing-safe for secrets) |
-
-### Bytes vs characters (UTF-8)
-| Character | `str.length` | Bytes |
-|---|---|---|
-| `A` | 1 | 1 |
-| `é` | 1 | 2 |
-| `न` | 1 | 3 |
-| `😀` | 2 | 4 |
-
-### base64 overhead
-Every 3 bytes become 4 characters: 1 MB (1,048,576 bytes) → **1,398,104** base64 characters (+33%). That's why files go to S3 as binary streams, not as base64 inside JSON.
-:::
-
-::: diagram From text to bytes and back
-flowchart LR
-  S["string 'Hi न'"] -->|"Buffer.from(str, 'utf8')"| B["Buffer: 48 69 20 e0 a4 a8"]
-  B -->|"toString('utf8')"| S
-  B -->|"toString('base64')"| E["'SGkg4KSo' (text-safe)"]
-  E -->|"Buffer.from(x, 'base64')"| B
-  B -->|"toString('hex')"| H["'486920e0a4a8'"]
-:::
-
-::: chart bar UTF-8 bytes needed per character (exact)
-Character,Bytes
-A (ASCII),1
-é (Latin),2
-न (Devanagari),3
-😀 (emoji),4
-:::
-
-::: image A Buffer is a row of bytes: how "Hi न" is stored in UTF-8 and how base64 regroups it
-/images/node-core/buffer-bytes.svg
-:::
-
-::: text 🪜 Step by step
-What happens in `Buffer.from('Hi न').toString('base64')`:
-1. Node encodes each character with UTF-8: `H` → `0x48`, `i` → `0x69`, space → `0x20`, `न` (U+0928) → three bytes `0xE0 0xA4 0xA8`.
-2. It allocates a 6-byte Buffer and copies those bytes in.
-3. `toString('base64')` takes the bytes **3 at a time** (24 bits) and splits them into four 6-bit groups.
-4. Each 6-bit value (0–63) maps to a character in `A–Z a–z 0–9 + /` → `SGkg4KSo`.
-5. If the byte count isn't a multiple of 3, `=` padding is added (`base64url` drops it and uses `-` `_`).
-6. Decoding reverses the steps; decoding with the **wrong** encoding (e.g. `latin1`) produces garbled text.
-:::
-
-::: code javascript Buffer basics (node buffer.js)
-// How to run: node buffer.js
-const text = 'Hello, नमस्ते';
-const buf = Buffer.from(text);                                   // UTF-8 by default
-console.log(buf);                                                // <Buffer 48 65 6c 6c 6f 2c 20 e0 a4 a8 ...>
-console.log('characters:', text.length, 'bytes:', buf.length);   // bytes > characters for non-ASCII
-
-console.log('base64:', buf.toString('base64'));
-console.log('hex:', buf.toString('hex'));
-console.log('decoded:', Buffer.from('SGVsbG8=', 'base64').toString());   // Hello
-
-const basicAuth = 'Basic ' + Buffer.from('user:password').toString('base64');
-console.log('Authorization header:', basicAuth);
-
-// Collect stream chunks, then decode once (avoids splitting multi-byte characters)
-const { Readable } = require('stream');
-const chunks = [];
-Readable.from([Buffer.from([0xe0, 0xa4]), Buffer.from([0xa8])])  // "न" split across two chunks!
-  .on('data', (c) => chunks.push(c))
-  .on('end', () => console.log('joined correctly:', Buffer.concat(chunks).toString()));
-
-// Comparing secrets: constant-time
-const crypto = require('crypto');
-const a = Buffer.from('token-123'), b = Buffer.from('token-123');
-console.log('timing-safe equal:', a.length === b.length && crypto.timingSafeEqual(a, b));
-:::
-
-::: code javascript Browser demo: bytes, UTF-8 and base64 with Uint8Array (runnable)
-// Browsers have no Buffer, but TextEncoder + Uint8Array show the same ideas.
-const bytes = new TextEncoder().encode('Hi न');
-console.log('bytes:', Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join(' '));
-console.log('6 bytes for 4 characters', bytes.length === 6 && 'Hi न'.length === 4 ? '✅' : '❌ FAIL');
-console.log('न is e0 a4 a8 in UTF-8', bytes[3] === 0xe0 && bytes[4] === 0xa4 && bytes[5] === 0xa8 ? '✅' : '❌ FAIL');
-
-const toBase64 = (u8) => btoa(String.fromCharCode(...u8));
-const b64 = toBase64(bytes);
-console.log('base64:', b64, b64 === 'SGkg4KSo' ? '✅' : '❌ FAIL');
-
-const back = new TextDecoder().decode(Uint8Array.from(atob(b64), (c) => c.charCodeAt(0)));
-console.log('round trip →', back, back === 'Hi न' ? '✅' : '❌ FAIL');
-
-const overhead = (n) => 4 * Math.ceil(n / 3);
-console.log('1 MB as base64 =', overhead(1048576), 'chars (+33%)', overhead(1048576) === 1398104 ? '✅' : '❌ FAIL');
-console.log('emoji: 2 UTF-16 units, 4 bytes', '😀'.length === 2 && new TextEncoder().encode('😀').length === 4 ? '✅' : '❌ FAIL');
-:::
-
-::: warning ⚠️ Common mistakes
-- Using `str.length` as a byte size (e.g. `Content-Length`): use `Buffer.byteLength(str)`.
-- Decoding each stream chunk separately → broken multi-byte characters at chunk borders.
-- `Buffer.allocUnsafe` without overwriting every byte → may expose old memory (secrets).
-- Sending files as base64 in JSON (33% bigger, more memory, slower) instead of binary/multipart/streams.
-- Comparing secrets with `===` or `buf.equals` instead of `crypto.timingSafeEqual`.
-:::
-
-::: understand
-- Text is an **interpretation** of bytes; the encoding is the dictionary. Wrong dictionary → garbage.
-- Buffers are how Node speaks to files, sockets and crypto; streams move Buffers in chunks.
-- base64 is for putting bytes **into text channels** (JSON, headers, data URLs), not for storage efficiency.
-:::
-
-::: ask
-- *"Why not just use strings?"* Binary data isn't valid UTF-8; converting corrupts it and wastes memory.
-- *"Where does the data go next: S3, a DB, the browser?"* Decides binary vs base64.
-- Trap: `Buffer` vs `ArrayBuffer`/`Uint8Array` in browsers; Node's Buffer *is* a `Uint8Array`.
-:::
-
-::: important ⭐ Say this in the interview
-"A Buffer is Node's representation of raw binary data: a fixed-length sequence of bytes, implemented as a Uint8Array. Files, network packets, images and crypto all work with Buffers, and stream chunks are Buffers. Converting between text and bytes needs an encoding: UTF-8 by default, where a Hindi character takes three bytes and an emoji four, so string length is not byte length. base64 turns bytes into text-safe characters but makes them about a third bigger, so I upload files as binary streams rather than base64 in JSON. I prefer Buffer.alloc over allocUnsafe, collect chunks with Buffer.concat before decoding, and compare secrets with timingSafeEqual."
-:::
-
-::: links
-Node.js: Buffer | https://nodejs.org/api/buffer.html
-MDN: TextEncoder | https://developer.mozilla.org/en-US/docs/Web/API/TextEncoder
-MDN: Base64 | https://developer.mozilla.org/en-US/docs/Glossary/Base64
-:::
-
-=== What is EventEmitter?
-@p 2
-@tags events, observer-pattern
-@quick
-- `EventEmitter` (module `events`) is Node's **observer / pub-sub** implementation: `on`, `once`, `emit`, `off`.
-- `emit` calls listeners **synchronously**, in registration order; a slow listener delays the emitter.
-- HTTP servers, streams, sockets and `process` all extend EventEmitter.
-- An `'error'` event with **no listener throws** and crashes the process; always listen for `'error'`.
-- Remove listeners you no longer need; the "MaxListenersExceededWarning" (default 10) usually means a leak.
-
-::: text 🧒 In simple words
-EventEmitter is a **school notice board with subscriptions**. Students sign up for topics ("sports", "exams"). When the teacher pins a notice about "sports" (`emit`), every student who subscribed to sports gets it, one after another, right away. The teacher doesn't need to know who's listening, which keeps things decoupled: the order system just announces "order placed", and the email, inventory and analytics modules react on their own. If someone announces an "error" and nobody is listening for errors, the school alarm goes off (the process crashes).
-:::
-
-::: text 📖 Detailed answer
-`EventEmitter` implements the **Observer pattern**: an object emits **named events**, and **listeners** subscribed to those names are called with the event's arguments.
-
-### API
-| Method | Purpose |
-|---|---|
-| `on(name, fn)` / `addListener` | Subscribe |
-| `once(name, fn)` | Subscribe for one call only |
-| `emit(name, ...args)` | Call all listeners synchronously; returns `true` if any existed |
-| `off(name, fn)` / `removeListener` | Unsubscribe that exact function |
-| `prependListener(name, fn)` | Subscribe at the front |
-| `listenerCount(name)` | How many listeners |
-| `setMaxListeners(n)` | Change the leak warning threshold (default 10) |
-| `events.once(emitter, name)` | Promise that resolves on the next event (`await` it) |
-| `events.on(emitter, name)` | Async iterator over events |
-
-### Behaviour that matters
-- **Synchronous**: `emit` runs every listener before returning. Use `setImmediate`/queues inside listeners for slow work.
-- **Error event**: `emit('error', err)` without a listener **throws** `err`.
-- **Ordering**: listeners run in the order they were added.
-- **Scope**: in-process only. Across servers use Redis pub/sub, SNS/SQS, Kafka or RabbitMQ.
-
-### Where you see it
-| Object | Events |
-|---|---|
-| `http.Server` | `'request'`, `'connection'`, `'close'` |
-| Streams | `'data'`, `'end'`, `'error'`, `'drain'`, `'finish'` |
-| `process` | `'exit'`, `'SIGTERM'`, `'unhandledRejection'` |
-| Mongoose connection | `'connected'`, `'error'`, `'disconnected'` |
-:::
-
-::: diagram Emit calls every subscriber synchronously
-sequenceDiagram
-  participant OS as OrderService
-  participant EM as EventEmitter
-  participant E as Email listener
-  participant I as Inventory listener
-  OS->>EM: emit order:placed (order 42)
-  EM->>E: listener 1 (sync)
-  E-->>EM: done
-  EM->>I: listener 2 (sync)
-  I-->>EM: done
-  EM-->>OS: emit returns true
-:::
-
-::: image Publish/subscribe with EventEmitter: one emitter, many decoupled listeners, and the error rule
-/images/node-core/event-emitter.svg
-:::
-
-::: text 🪜 Step by step
-What `orders.emit('order:placed', order)` does:
-1. Looks up the array of listeners for `'order:placed'` (copying it, so changes during emit don't affect this call).
-2. Calls listener 1 with `order` and waits for it to return (synchronously).
-3. Calls listener 2, then 3… in registration order; `once` listeners remove themselves before running.
-4. Returns `true` because at least one listener existed.
-5. For `emit('error', err)`: if no `'error'` listener exists, Node throws `err`, which crashes the process unless caught.
-6. Async listeners (`async (o) => …`) start, return a Promise that `emit` **ignores**, so handle their errors inside them.
-:::
-
-::: code javascript Order events with EventEmitter (node events.js)
-// How to run: node events.js
-const EventEmitter = require('events');
-const { once } = require('events');
-
-class OrderService extends EventEmitter {
-  placeOrder(order) {
-    // ...save to the database here
-    this.emit('order:placed', order);          // the service doesn't know who is listening
-    return order;
-  }
-}
-
-const orders = new OrderService();
-orders.on('order:placed', (o) => console.log(`📧 email queued for order ${o.id}`));
-orders.on('order:placed', (o) => console.log(`📦 reserved ${o.items.length} items`));
-orders.once('order:placed', () => console.log('🎉 first order ever!'));
-orders.on('error', (err) => console.error('handled error:', err.message));   // never leave 'error' unhandled
-
-orders.placeOrder({ id: 1, items: ['book', 'pen'] });
-orders.placeOrder({ id: 2, items: ['laptop'] });
-orders.emit('error', new Error('payment gateway down'));
-
-(async () => {
-  setTimeout(() => orders.placeOrder({ id: 3, items: ['mug'] }), 50);
-  const [next] = await once(orders, 'order:placed');                      // await the next event
-  console.log('awaited order', next.id, '| listeners now:', orders.listenerCount('order:placed'));
-})();
-:::
-
-::: code javascript Browser demo: build a mini EventEmitter and test it (runnable)
-class MyEmitter {
-  constructor() { this.events = new Map(); }
-  on(name, fn) {
-    if (!this.events.has(name)) this.events.set(name, []);
-    this.events.get(name).push(fn);
-    return () => this.off(name, fn);                       // return an unsubscribe function
-  }
-  once(name, fn) {
-    const wrapper = (...args) => { this.off(name, wrapper); fn(...args); };
-    return this.on(name, wrapper);
-  }
-  off(name, fn) {
-    this.events.set(name, (this.events.get(name) || []).filter((l) => l !== fn));
-  }
-  emit(name, ...args) {
-    const list = [...(this.events.get(name) || [])];      // copy: listeners may unsubscribe while we emit
-    if (name === 'error' && list.length === 0) throw args[0];
-    list.forEach((fn) => fn(...args));
-    return list.length > 0;
-  }
-}
-
-const e = new MyEmitter();
-const calls = [];
-const unsub = e.on('greet', (n) => calls.push(`hello ${n}`));
-e.once('greet', (n) => calls.push(`once ${n}`));
-e.emit('greet', 'A');
-e.emit('greet', 'B');
-unsub();
-const hadListeners = e.emit('greet', 'C');
-
-console.log(calls.join(' | '));
-console.log('listeners run in order, once only once', calls.join('|') === 'hello A|once A|hello B' ? '✅' : '❌ FAIL');
-console.log('unsubscribe works', hadListeners === false ? '✅' : '❌ FAIL');
-let threw = false;
-try { e.emit('error', new Error('boom')); } catch (err) { threw = err.message === 'boom'; }
-console.log('unhandled "error" event throws', threw ? '✅' : '❌ FAIL');
-let order = '';
-e.on('sync', () => { order += 'listener '; });
-e.emit('sync');
-order += 'after-emit';
-console.log('emit is synchronous', order === 'listener after-emit' ? '✅' : '❌ FAIL');
-:::
-
-::: warning ⚠️ Common mistakes
-- No `'error'` listener → one emitted error crashes the server.
-- Adding listeners inside a request handler and never removing them → memory leak and MaxListeners warning.
-- Expecting `emit` to wait for `async` listeners (it ignores their Promises, and their errors become unhandled).
-- Using EventEmitter for cross-service messaging: it only works inside one process.
-- Removing a listener with a different function reference (e.g. a new arrow function) → nothing is removed.
-:::
-
-::: understand
-- EventEmitter is the backbone of Node's own APIs (streams, servers, `process`).
-- It's great for **decoupling modules in one process**; for durability or multiple servers, use a queue or pub/sub system.
-- Synchronous emit = predictable order, but listeners must be fast.
-:::
-
-::: ask
-- If asked to implement one: *"Should `emit` be sync or async? Should `on` return an unsubscribe? Do we need `once` and wildcards?"*
-- *"Does this need to survive restarts or work across instances?"* → a message broker instead.
-- Trap: async listeners and error handling.
-:::
-
-::: important ⭐ Say this in the interview
-"EventEmitter is Node's implementation of the observer pattern: objects emit named events and listeners registered with on or once are called with the event data. Node's own HTTP servers, streams and the process object are emitters. Emit is synchronous, listeners run in registration order, and if an error event is emitted with no listener, Node throws and the process crashes, so I always handle error. I use it to decouple modules inside a process, like an order service announcing order placed while email and inventory listeners react, and I remove listeners to avoid leaks. For communication across instances or durable events I'd use Redis pub/sub, SNS/SQS or Kafka instead."
-:::
-
-::: links
-Node.js: Events | https://nodejs.org/api/events.html
-Node.js: events.once | https://nodejs.org/api/events.html#eventsonceemitter-name-options
-Refactoring Guru: Observer pattern | https://refactoring.guru/design-patterns/observer
 :::

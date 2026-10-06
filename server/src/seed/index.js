@@ -162,4 +162,34 @@ async function addMissingDefaults(files) {
   return { addedNodes, addedPages };
 }
 
-module.exports = { seedIfEmpty, resetToDefaults, insertDefaults, insertDefaultTerms, addMissingDefaults, loadContent, loadTerms, defaultNodes, UNCATEGORISED };
+/**
+ * Put the SHARED pages of the given seed files back into the order of the file (used when content is
+ * reorganised into learning order). Pages that aren't in the file (added by admins) keep their relative
+ * order after the default ones. Only the `order` field changes.
+ */
+async function reorderDefaultPages(files) {
+  let moved = 0;
+  for (const n of defaultNodes().filter((x) => files.includes(x.seedFile) && x.questions)) {
+    const node = await Section.findOne({ key: n.key, owner: null }).lean();
+    if (!node) continue;
+    const pages = await Question.find({ section: node._id, owner: null, parent: null }).sort({ order: 1 }).lean();
+    const rank = new Map(n.questions.map((q, i) => [q.title, i]));
+    const sorted = [...pages].sort((a, b) => (rank.get(a.title) ?? 1e6 + a.order) - (rank.get(b.title) ?? 1e6 + b.order));
+    for (let i = 0; i < sorted.length; i++) {
+      if (sorted[i].order !== i) { await Question.updateOne({ _id: sorted[i]._id }, { $set: { order: i } }); moved += 1; }
+    }
+  }
+  return moved;
+}
+
+/** Give default (shared) categories with these keys the order they have in taxonomy.js. */
+async function syncDefaultNodeOrder(keys) {
+  let changed = 0;
+  for (const n of defaultNodes().filter((x) => keys.includes(x.key))) {
+    const r = await Section.updateOne({ key: n.key, owner: null, order: { $ne: n.order } }, { $set: { order: n.order } });
+    changed += r.modifiedCount;
+  }
+  return changed;
+}
+
+module.exports = { reorderDefaultPages, syncDefaultNodeOrder, seedIfEmpty, resetToDefaults, insertDefaults, insertDefaultTerms, addMissingDefaults, loadContent, loadTerms, defaultNodes, UNCATEGORISED };

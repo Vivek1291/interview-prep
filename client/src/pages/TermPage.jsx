@@ -75,6 +75,7 @@ export default function TermPage() {
             </>
           ) : (
             <>
+              <button className="btn" onClick={() => window.print()} title="Print or save as PDF">🖨 Print</button>
               <button className="btn" onClick={() => setAskAi(true)}>🤖 Ask AI</button>
               {term.canEdit && <button className="btn btn-primary" onClick={startEdit}>✏️ Edit</button>}
               {term.canEdit && <button className="btn btn-danger-ghost" onClick={remove} title="Delete term">🗑</button>}
