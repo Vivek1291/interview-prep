@@ -48,12 +48,14 @@ test('v7 adds the Node.js runtime and core-modules sections in learning order', 
   assert.equal((await Meta.findById('schemaVersion').lean()).value, CURRENT);
   const node = await Section.findOne({ key: 'backend/nodejs' }).lean();
   const children = await Section.find({ parent: node._id }).sort({ order: 1 }).lean();
-  assert.deepEqual(children.map((n) => n.key), ['backend/nodejs/core', 'backend/nodejs/runtime', 'backend/nodejs/modules', 'backend/nodejs/express']);
-  assert.equal(children[1].title, 'Node.js Runtime & Modules');
-  assert.equal(await Question.countDocuments({ section: children[1]._id, owner: null }), 7);
-  assert.equal(await Question.countDocuments({ section: children[2]._id, owner: null }), 5);
+  const v7Keys = ['backend/nodejs/core', 'backend/nodejs/runtime', 'backend/nodejs/modules', 'backend/nodejs/express'];
+  const ordered = children.filter((n) => v7Keys.includes(n.key));
+  assert.deepEqual(ordered.map((n) => n.key), v7Keys, 'relative learning order (later versions add more children)');
+  assert.equal(ordered[1].title, 'Node.js Runtime & Modules');
+  assert.equal(await Question.countDocuments({ section: ordered[1]._id, owner: null }), 7);
+  assert.equal(await Question.countDocuments({ section: ordered[2]._id, owner: null }), 5);
 
-  const core = await Question.find({ section: children[0]._id, owner: null }).sort({ order: 1 }).lean();
+  const core = await Question.find({ section: ordered[0]._id, owner: null }).sort({ order: 1 }).lean();
   const at = core.findIndex((q) => q.title === PUZZLE);
   assert.equal(core[at - 1].title, 'Difference between process.nextTick(), setImmediate() and setTimeout()', 'puzzle placed after nextTick, not at the end');
   assert.ok(await Question.findOne({ title: 'My event loop notes', owner }), 'private page kept');

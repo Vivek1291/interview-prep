@@ -1168,6 +1168,174 @@ Google JSON style guide | https://google.github.io/styleguide/jsoncstyleguide.xm
 RFC 9457: Problem Details for HTTP APIs | https://www.rfc-editor.org/rfc/rfc9457.html
 :::
 
+=== How do you evolve an API without breaking clients? (compatibility, partial updates, bulk APIs, HATEOAS)
+@p 2
+@tags rest, api-design, versioning, compatibility, patch
+@quick
+- **Additive changes are safe** (new optional fields, new endpoints); **removing, renaming or retyping** fields, or making inputs required, is **breaking** → new version or a migration period.
+- Clients must be **tolerant readers**: ignore unknown fields, don't crash on new enum values.
+- **Partial updates**: `PATCH` with JSON Merge Patch (`null` deletes a field) or JSON Patch (`op`/`path`/`value` operations, e.g. `add` to an array).
+- **Bulk APIs**: cap the batch size, validate every item, return **per-item results** (partial success), make them idempotent.
+- **HATEOAS** (links in responses that tell clients what they can do next) is good to know; most JSON APIs use documented URLs plus pagination `next` links instead.
+
+::: text 🧒 In simple words
+An API is a **contract with people you've never met** (mobile apps that won't update for months). You may **add new rooms to the house**, but you can't **move the front door** without warning everyone and keeping the old door open for a while.
+:::
+
+::: text 📖 Detailed answer
+### Breaking vs non-breaking
+| Change | Breaking? |
+|---|---|
+| Add an optional request field or a new response field | no |
+| Add a new endpoint or HTTP method | no |
+| Add an enum value | maybe (clients with exhaustive `switch` statements break) |
+| Rename/remove a field, change its type or meaning | **yes** |
+| Make an optional input required, tighten validation | **yes** |
+| Change status codes, error codes, pagination format | **yes** |
+
+### Process for a breaking change
+1. Add the new field/endpoint next to the old one (expand).
+2. Mark the old one with `Deprecation` and `Sunset` headers, document it, and log who still uses it.
+3. Migrate clients (mobile apps need the longest time).
+4. Remove it after the sunset date (contract).
+URL versions (`/v2/`) are for big redesigns; most evolution happens within a version.
+
+### Partial updates
+| Format | Content-Type | Example | Good for |
+|---|---|---|---|
+| JSON Merge Patch (RFC 7396) | `application/merge-patch+json` | `{ "bio": "hi", "avatarUrl": null }` | simple objects |
+| JSON Patch (RFC 6902) | `application/json-patch+json` | `[{ "op": "add", "path": "/tags/-", "value": "vip" }]` | arrays, precise operations, `test` for optimistic checks |
+Most APIs accept a plain JSON body on PATCH and treat it as a merge patch, validated with a `.partial()` schema.
+
+### Bulk endpoints
+`POST /api/products/bulk` with ≤ 100 items → respond `200` (or `207 Multi-Status`) with `[{ index, status: 201, id }, { index, status: 400, error }]`. Decide upfront: all-or-nothing (transaction) or partial success. Accept an `Idempotency-Key` so retries don't duplicate.
+
+### HATEOAS in one line
+`{ "id": 981, "status": "pending", "links": { "cancel": "/orders/981/cancel" } }`: the server tells the client which actions are valid now. Rare in practice; mention it, don't over-invest.
+:::
+
+::: diagram Expand and contract for a breaking change
+flowchart LR
+  A["v1: field name"] --> B["expand: add fullName, keep name"]
+  B --> C["deprecate name: Deprecation and Sunset headers"]
+  C --> D["clients migrate, usage logs drop to zero"]
+  D --> E["contract: remove name"]
+:::
+
+::: image Evolving an API without breaking clients
+/images/rest-auth/api-evolution.svg
+:::
+
+::: text 🪜 Step by step
+Renaming `name` to `fullName` in a user API used by a mobile app:
+1. Release the API returning both `name` and `fullName`, accepting either on input.
+2. Ship the app version that reads `fullName`.
+3. Add `Deprecation: true` and `Sunset: <date>` headers on responses that include `name`; log requests from old app versions.
+4. When old versions are below an agreed share (or force-update), stop accepting/returning `name`.
+5. Contract tests ensure no other client still depends on it.
+:::
+
+::: code javascript PATCH with merge-patch semantics and a bulk endpoint (Express + Zod)
+const express = require('express');
+const { ObjectId } = require('mongodb');
+const { z } = require('zod');
+
+const productPatch = z.object({
+  name: z.string().min(1).max(200),
+  price: z.number().positive(),
+  description: z.string().max(5000).nullable(),       // null = remove (merge patch)
+}).partial().strict();
+
+const router = express.Router();
+
+router.patch('/products/:id', async (req, res) => {
+  if (!ObjectId.isValid(req.params.id)) return res.status(404).json({ error: { code: 'NOT_FOUND' } });
+  const changes = productPatch.parse(req.body);
+  const update = {};
+  for (const [k, v] of Object.entries(changes)) {
+    if (v === null) (update.$unset ??= {})[k] = '';
+    else (update.$set ??= {})[k] = v;
+  }
+  if (!update.$set && !update.$unset) return res.status(400).json({ error: { code: 'EMPTY_PATCH' } });
+  const product = await req.db.products.findOneAndUpdate({ _id: new ObjectId(req.params.id) }, update, { returnDocument: 'after' });
+  if (!product) return res.status(404).json({ error: { code: 'NOT_FOUND' } });
+  res.json(product);
+});
+
+const newProduct = z.object({ sku: z.string().min(1), name: z.string().min(1), price: z.number().positive() }).strict();
+router.post('/products/bulk', async (req, res) => {
+  const items = z.array(z.unknown()).min(1).max(100).parse(req.body.items);
+  const results = await Promise.all(items.map(async (raw, index) => {
+    const parsed = newProduct.safeParse(raw);
+    if (!parsed.success) return { index, status: 400, error: parsed.error.issues[0].message };
+    try {
+      const { insertedId } = await req.db.products.insertOne(parsed.data);
+      return { index, status: 201, id: insertedId };
+    } catch (err) {
+      return { index, status: err.code === 11000 ? 409 : 500, error: err.code === 11000 ? 'SKU exists' : 'failed' };
+    }
+  }));
+  res.status(results.every((r) => r.status === 201) ? 201 : 207).json({ results });
+});
+
+module.exports = router;
+:::
+
+::: code javascript Merge Patch vs JSON Patch (runnable)
+function mergePatch(target, patch) {                        // RFC 7396
+  if (patch === null || typeof patch !== 'object' || Array.isArray(patch)) return patch;
+  const out = { ...(typeof target === 'object' && target && !Array.isArray(target) ? target : {}) };
+  for (const [k, v] of Object.entries(patch)) { if (v === null) delete out[k]; else out[k] = mergePatch(out[k], v); }
+  return out;
+}
+function jsonPatch(doc, ops) {                              // RFC 6902 subset: add, replace, remove, test
+  const out = structuredClone(doc);
+  for (const { op, path, value } of ops) {
+    const keys = path.split('/').slice(1); const last = keys.pop();
+    const parent = keys.reduce((o, k) => o[k], out);
+    if (op === 'test' && JSON.stringify(parent[last]) !== JSON.stringify(value)) throw new Error(`test failed at ${path}`);
+    if (op === 'remove') Array.isArray(parent) ? parent.splice(+last, 1) : delete parent[last];
+    if (op === 'replace') parent[last] = value;
+    if (op === 'add') Array.isArray(parent) ? parent.splice(last === '-' ? parent.length : +last, 0, value) : (parent[last] = value);
+  }
+  return out;
+}
+const user = { name: 'Asha', bio: 'old', avatarUrl: 'a.png', tags: ['beta'] };
+const m = mergePatch(user, { bio: 'hi', avatarUrl: null });
+console.log(m);
+console.log('merge patch: null deletes', !('avatarUrl' in m) && m.bio === 'hi' ? '✅' : '❌ FAIL');
+console.log('merge patch replaces arrays wholesale', JSON.stringify(mergePatch(user, { tags: ['vip'] }).tags) === '["vip"]' ? '✅' : '❌ FAIL');
+const p = jsonPatch(user, [{ op: 'test', path: '/bio', value: 'old' }, { op: 'add', path: '/tags/-', value: 'vip' }]);
+console.log('json patch appends to an array', JSON.stringify(p.tags) === '["beta","vip"]' ? '✅' : '❌ FAIL');
+try { jsonPatch(m, [{ op: 'test', path: '/bio', value: 'old' }]); console.log('❌ FAIL'); } catch (e) { console.log('json patch test op prevents lost updates:', e.message, '✅'); }
+:::
+
+::: warning ⚠️ Common mistakes
+- Renaming a field "because it's cleaner" in place.
+- Clients that crash on unknown fields or new enum values.
+- `PATCH` handlers that replace the whole document (that's PUT).
+- Unlimited bulk endpoints, or ones that hide which items failed.
+- Creating `/v2` for every small change (version sprawl).
+:::
+
+::: understand
+- Expand, migrate, contract; tolerant readers; PATCH changes only what's sent; bulk returns per-item results.
+:::
+
+::: ask
+- *"Who are all the consumers of this API, and how fast can each of them upgrade?"*
+:::
+
+::: important ⭐ Say this in the interview
+"I keep APIs backward compatible by making only additive changes within a version: new optional fields and endpoints are safe, while removing, renaming or retyping fields, tightening validation or changing error codes are breaking. For those I use expand and contract: add the new field alongside the old one, mark the old one with Deprecation and Sunset headers, log who still uses it, and remove it once clients have migrated. PATCH uses merge-patch semantics with a partial schema, or JSON Patch when I need precise array operations, and bulk endpoints cap the batch size and return per-item results. HATEOAS I know as links describing allowed next actions, though most JSON APIs just document their URLs."
+:::
+
+::: links
+RFC 7396: JSON Merge Patch | https://www.rfc-editor.org/rfc/rfc7396
+RFC 6902: JSON Patch | https://www.rfc-editor.org/rfc/rfc6902
+RFC 9745: The Deprecation HTTP Header | https://www.rfc-editor.org/rfc/rfc9745
+:::
+
 === How do you handle authentication? (end-to-end overview)
 @p 3
 @tags auth, bcrypt, oauth

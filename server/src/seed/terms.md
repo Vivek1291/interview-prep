@@ -603,3 +603,28 @@ console.log('more correct leading characters → more work → measurable time',
 - `path.resolve(BASE, name)` then check `startsWith(BASE + path.sep)`.
 - `res.sendFile(name, { root })` and `express.static` do this check for you.
 :::
+
+=== ETag
+@aliases entity tag, If-None-Match, 304 Not Modified
+@summary A version identifier the server sends with a response. The client sends it back in `If-None-Match`; if nothing changed the server answers `304 Not Modified` with no body (measured: 15,791 bytes → 0 bytes).
+::: text 📖 How it works
+- Response: `ETag: "v1"` plus `Cache-Control: no-cache` (revalidate every time).
+- Next request: `If-None-Match: "v1"` → `304` if still current, otherwise `200` with the new body and a new ETag.
+- Express adds ETags to `res.json`/`res.send` automatically.
+:::
+
+=== Mass assignment
+@aliases over-posting, auto-binding
+@summary Copying a request body straight into a model so attackers can set fields they shouldn't (`role`, `isAdmin`, `ownerId`). Prevent it with allow-list schemas per operation and by only using the validated output.
+::: text 📖 Example
+- `User.updateOne({ _id }, req.body)` with `{ "role": "admin" }` → privilege escalation.
+- Zod strips unknown keys by default (`.strict()` rejects them); Joi rejects them; Ajv rejects them with `additionalProperties: false`.
+:::
+
+=== Keep-alive
+@aliases HTTP keep-alive, persistent connection, connection reuse
+@summary Reusing one TCP/TLS connection for many HTTP requests instead of opening a new one each time, which skips the TCP and TLS handshakes (measured on localhost: 0.999 ms per HTTPS request with new connections vs 0.134 ms reused).
+::: text 📖 In Node.js
+- Use one shared `http.Agent({ keepAlive: true })` or `fetch` (undici pools connections by default).
+- Over a 50 ms network, each avoided handshake saves about 100 ms.
+:::

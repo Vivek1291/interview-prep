@@ -10,7 +10,7 @@ const Meta = require('../models/Meta');
 const Section = require('../models/Section');
 const { defaultNodes, seedIfEmpty, insertDefaultTerms, addMissingDefaults, reorderDefaultPages, syncDefaultNodeOrder, UNCATEGORISED } = require('./index');
 
-const CURRENT = 7;
+const CURRENT = 8;
 // v3 (Oct 2026): glossary terms + React sections (files 22-26) added to existing databases
 const V3_FILES = ['22-react-fundamentals.md', '23-react-hooks.md', '24-react-performance.md', '25-react-suspense.md', '26-react-19.md'];
 // v4 (Oct 2026): JavaScript sections (files 27-33) + any new glossary terms
@@ -28,6 +28,12 @@ const V7_FILES = ['43-node-runtime.md', '44-node-core-modules.md'];
 const V7_NEW_IN_EXISTING = { files: ['01-node-core.md'], titles: ['Predict the output: Node.js event loop puzzles (nextTick, Promise, setTimeout, setImmediate)'] };
 const V7_REORDERED = ['01-node-core.md'];
 const V7_NODE_ORDER = ['backend/nodejs/core', 'backend/nodejs/runtime', 'backend/nodejs/modules', 'backend/nodejs/express'];
+// v8 (Oct 2026): HTTP Fundamentals (45), Validation & Error Handling (46), Streams & Buffers (47), API evolution in REST (03)
+const V8_FILES = ['45-http-fundamentals.md', '46-node-validation-errors.md', '47-node-streams-buffers.md'];
+const V8_NEW_IN_EXISTING = { files: ['03-rest-auth.md'], titles: ['How do you evolve an API without breaking clients? (compatibility, partial updates, bulk APIs, HATEOAS)'] };
+const V8_REORDERED = ['03-rest-auth.md'];
+const V8_NODE_ORDER = ['backend/nodejs/core', 'backend/nodejs/runtime', 'backend/nodejs/modules', 'backend/nodejs/streams', 'backend/nodejs/express', 'backend/nodejs/validation-errors',
+  'backend/common/http-fundamentals', 'backend/common/rest-auth', 'backend/common/caching', 'backend/common/messaging', 'backend/common/security'];
 
 async function getVersion() {
   return (await Meta.findById('schemaVersion').lean())?.value ?? null;
@@ -124,8 +130,16 @@ async function migrate() {
       const nodes = await syncDefaultNodeOrder(V7_NODE_ORDER);
       console.log(`🔁 Migrated to v7: ${r.addedNodes} new categories, ${r.addedPages + r2.addedPages} new pages, ${terms} glossary terms, ${moved} pages and ${nodes} categories put in learning order`);
     }
+    if (version == null || version < 8) {
+      const r = await addMissingDefaults(V8_FILES);
+      const r2 = await addMissingDefaults(V8_NEW_IN_EXISTING.files, { titles: V8_NEW_IN_EXISTING.titles });
+      const terms = await insertDefaultTerms(new Map(), { onlyMissing: true });
+      const moved = await reorderDefaultPages(V8_REORDERED);
+      const nodes = await syncDefaultNodeOrder(V8_NODE_ORDER);
+      console.log(`🔁 Migrated to v8: ${r.addedNodes} new categories, ${r.addedPages + r2.addedPages} new pages, ${terms} glossary terms, ${moved} pages and ${nodes} categories put in learning order`);
+    }
   }
   await setVersion(CURRENT);
 }
 
-module.exports = { migrate, CURRENT, V3_FILES, V4_FILES, V5_FILES, V6_FILES, V7_FILES };
+module.exports = { migrate, CURRENT, V3_FILES, V4_FILES, V5_FILES, V6_FILES, V7_FILES, V8_FILES };

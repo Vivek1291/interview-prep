@@ -42,7 +42,9 @@ const TREE = [
           { key: 'backend/nodejs/core', files: ['01-node-core.md'] },
           { key: 'backend/nodejs/runtime', files: ['43-node-runtime.md'] },
           { key: 'backend/nodejs/modules', files: ['44-node-core-modules.md'] },
+          { key: 'backend/nodejs/streams', files: ['47-node-streams-buffers.md'] },
           { key: 'backend/nodejs/express', files: ['02-express.md'] },
+          { key: 'backend/nodejs/validation-errors', files: ['46-node-validation-errors.md'] },
         ],
       },
       {
@@ -66,7 +68,7 @@ const TREE = [
       },
       {
         key: 'backend/common', title: 'Common Topics', icon: '🔗', color: '#8b5cf6', description: 'Concepts every backend needs, whatever the language.',
-        files: ['03-rest-auth.md'],
+        files: ['45-http-fundamentals.md', '03-rest-auth.md'],
         children: [
           { key: 'backend/common/caching', title: 'Caching', icon: '🗃️', color: '#8b5cf6', description: 'Cache-aside, TTLs, invalidation, CDNs.' },
           { key: 'backend/common/messaging', title: 'Messaging & Queues', icon: '📨', color: '#8b5cf6', description: 'Queues, pub/sub, retries, idempotency.' },
@@ -162,11 +164,11 @@ function filePlacements() {
   const map = {};
   for (const n of flatten()) {
     if (!n.files) continue;
-    for (const f of n.files) {
+    n.files.forEach((f, index) => {
       // A titled node with files: the file becomes a child of this node.
       // An untitled "file node": the file's section IS this node.
-      map[f] = n.title ? { parentKey: n.key, nodeKey: `${n.key}/${f.replace(/^\d+-|\.md$/g, '')}` } : { parentKey: n.parentKey, nodeKey: n.key };
-    }
+      map[f] = n.title ? { parentKey: n.key, nodeKey: `${n.key}/${f.replace(/^\d+-|\.md$/g, '')}`, index } : { parentKey: n.parentKey, nodeKey: n.key };
+    });
   }
   return map;
 }

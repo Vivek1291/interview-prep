@@ -56,9 +56,9 @@ function defaultNodes(files = loadContent()) {
     if (place.parentKey === UNCATEGORISED.key && !nodes.some((n) => n.key === UNCATEGORISED.key)) {
       nodes.push({ ...UNCATEGORISED, parentKey: null, order: 1000 });
     }
-    // order: a file node keeps its slot among its siblings; files listed on a titled node come first
+    // order: a file node keeps its slot among its siblings; files listed on a titled node come first, in the order listed
     const skeletonEntry = flatten().find((n) => n.key === place.nodeKey);
-    const order = skeletonEntry ? skeletonEntry.order : (fileCountUnder[place.parentKey] = (fileCountUnder[place.parentKey] ?? -1) + 1);
+    const order = skeletonEntry ? skeletonEntry.order : place.index ?? (fileCountUnder[place.parentKey] = (fileCountUnder[place.parentKey] ?? -1) + 1);
     nodes.push({ key: place.nodeKey, parentKey: place.parentKey, order, seedFile: f.file, ...f.section, questions: f.questions });
   }
   return nodes;
