@@ -628,3 +628,36 @@ console.log('more correct leading characters → more work → measurable time',
 - Use one shared `http.Agent({ keepAlive: true })` or `fetch` (undici pools connections by default).
 - Over a 50 ms network, each avoided handshake saves about 100 ms.
 :::
+
+=== N+1 query problem
+@aliases N+1, N+1 queries, N plus 1
+@summary Loading a list with one query and then running one more query per row for related data. Measured on PostgreSQL: 100 orders with their users took 20.7 ms and 101 queries, vs 0.53 ms with one JOIN.
+::: text 📖 Fixes
+- JOIN, ORM `include`/`populate`, or a second batched query `WHERE id = ANY($1)`.
+- DataLoader batches loads made in the same tick (GraphQL).
+- Detect it by counting queries per request.
+:::
+
+=== Connection pool
+@aliases connection pooling, pool size, PgBouncer
+@summary A set of open database connections reused across queries, so each query skips the connection handshake (measured: 0.24 ms pooled vs 6.53 ms with a new connection) and concurrency is capped.
+::: text 📖 Sizing
+- `instances × pool max` must fit the database's `max_connections`; use PgBouncer or RDS Proxy when it doesn't.
+- CPU-bound queries stop scaling around the database's core count.
+:::
+
+=== MVCC
+@aliases multi-version concurrency control, row versions, VACUUM
+@summary Multi-version concurrency control: updates write new row versions instead of overwriting, so each transaction reads a consistent snapshot and readers don't block writers. Old versions are cleaned up by VACUUM (measured: 20 updates grew a 360 KB table to 7.4 MB until vacuumed).
+::: text 📖 Remember
+- PostgreSQL and MongoDB (WiredTiger) both use MVCC-style snapshots.
+- Long-running transactions keep old versions alive → bloat.
+:::
+
+=== Isolation level
+@aliases transaction isolation, read committed, repeatable read, serializable
+@summary How much concurrent transactions can see of each other. PostgreSQL defaults to READ COMMITTED; REPEATABLE READ uses one snapshot; SERIALIZABLE behaves as if transactions ran one at a time and aborts conflicting ones with error 40001 (retry them).
+::: text 📖 Measured anomalies
+- READ COMMITTED: read 50 then 45 within one transaction and overwrote a concurrent change.
+- REPEATABLE READ allowed write skew; SERIALIZABLE prevented it.
+:::

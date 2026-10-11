@@ -45,7 +45,8 @@ after(async () => { await mongoose.connection.dropDatabase(); await mongoose.dis
 test('v8 adds HTTP, validation/errors and streams sections in learning order', async () => {
   assert.equal((await Meta.findById('schemaVersion').lean()).value, CURRENT);
   const kids = async (key) => Section.find({ parent: (await Section.findOne({ key }))._id }).sort({ order: 1 }).lean();
-  assert.deepEqual((await kids('backend/nodejs')).map((n) => n.key), ['backend/nodejs/core', 'backend/nodejs/runtime', 'backend/nodejs/modules', 'backend/nodejs/streams', 'backend/nodejs/express', 'backend/nodejs/validation-errors']);
+  const v8Keys = ['backend/nodejs/core', 'backend/nodejs/runtime', 'backend/nodejs/modules', 'backend/nodejs/streams', 'backend/nodejs/express', 'backend/nodejs/validation-errors'];
+  assert.deepEqual((await kids('backend/nodejs')).map((n) => n.key).filter((k) => v8Keys.includes(k)), v8Keys, 'relative learning order (later versions add more children)');
   const common = await kids('backend/common');
   assert.deepEqual(common.slice(0, 2).map((n) => n.key), ['backend/common/http-fundamentals', 'backend/common/rest-auth']);
   assert.equal(await Question.countDocuments({ section: common[0]._id, owner: null }), 5);

@@ -45,6 +45,7 @@ const TREE = [
           { key: 'backend/nodejs/streams', files: ['47-node-streams-buffers.md'] },
           { key: 'backend/nodejs/express', files: ['02-express.md'] },
           { key: 'backend/nodejs/validation-errors', files: ['46-node-validation-errors.md'] },
+          { key: 'backend/nodejs/database', files: ['48-node-database-integration.md'] },
         ],
       },
       {
@@ -61,8 +62,8 @@ const TREE = [
             key: 'backend/databases/mongodb', title: 'MongoDB', icon: '🍃', color: '#10b981', description: 'Documents, modelling, indexes, aggregation and Mongoose.',
             files: ['04-mongodb-fundamentals.md', '05-mongodb-aggregation-indexing.md', '06-mongoose.md', '07-mongodb-scenarios.md'],
           },
-          { key: 'backend/databases/sql', title: 'SQL', icon: '🧾', color: '#6366f1', description: 'Relational modelling, joins, normalisation, transactions.' },
-          { key: 'backend/databases/postgresql', title: 'PostgreSQL', icon: '🐘', color: '#3b82f6', description: 'Postgres features, indexing, JSONB, performance.' },
+          { key: 'backend/databases/sql', files: ['49-sql-fundamentals.md'] },
+          { key: 'backend/databases/postgresql', files: ['50-postgresql.md'] },
           { key: 'backend/databases/redis', title: 'Redis', icon: '🟥', color: '#ef4444', description: 'Caching, data structures, rate limiting, queues.' },
         ],
       },
