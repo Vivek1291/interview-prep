@@ -10,7 +10,7 @@ const Meta = require('../models/Meta');
 const Section = require('../models/Section');
 const { defaultNodes, seedIfEmpty, insertDefaultTerms, addMissingDefaults, reorderDefaultPages, syncDefaultNodeOrder, UNCATEGORISED } = require('./index');
 
-const CURRENT = 9;
+const CURRENT = 10;
 // v3 (Oct 2026): glossary terms + React sections (files 22-26) added to existing databases
 const V3_FILES = ['22-react-fundamentals.md', '23-react-hooks.md', '24-react-performance.md', '25-react-suspense.md', '26-react-19.md'];
 // v4 (Oct 2026): JavaScript sections (files 27-33) + any new glossary terms
@@ -37,6 +37,9 @@ const V8_NODE_ORDER = ['backend/nodejs/core', 'backend/nodejs/runtime', 'backend
 // v9 (Oct 2026): Node.js Database Integration (48), SQL Fundamentals (49), PostgreSQL (50; fills the SQL/PostgreSQL placeholders)
 const V9_FILES = ['48-node-database-integration.md', '49-sql-fundamentals.md', '50-postgresql.md'];
 const V9_NODE_ORDER = ['backend/nodejs/validation-errors', 'backend/nodejs/database'];
+// v10 (Oct 2026): Real-Time: WebSockets & SSE (51)
+const V10_FILES = ['51-realtime.md'];
+const V10_NODE_ORDER = ['backend/nodejs/database', 'backend/nodejs/realtime'];
 
 async function getVersion() {
   return (await Meta.findById('schemaVersion').lean())?.value ?? null;
@@ -147,8 +150,14 @@ async function migrate() {
       const nodes = await syncDefaultNodeOrder(V9_NODE_ORDER);
       console.log(`🔁 Migrated to v9: ${r.addedNodes} new categories, ${r.addedPages} new pages, ${terms} glossary terms, ${nodes} categories put in learning order`);
     }
+    if (version == null || version < 10) {
+      const r = await addMissingDefaults(V10_FILES);
+      const terms = await insertDefaultTerms(new Map(), { onlyMissing: true });
+      const nodes = await syncDefaultNodeOrder(V10_NODE_ORDER);
+      console.log(`🔁 Migrated to v10: ${r.addedNodes} new categories, ${r.addedPages} new pages, ${terms} glossary terms, ${nodes} categories put in learning order`);
+    }
   }
   await setVersion(CURRENT);
 }
 
-module.exports = { migrate, CURRENT, V3_FILES, V4_FILES, V5_FILES, V6_FILES, V7_FILES, V8_FILES, V9_FILES };
+module.exports = { migrate, CURRENT, V3_FILES, V4_FILES, V5_FILES, V6_FILES, V7_FILES, V8_FILES, V9_FILES, V10_FILES };

@@ -55,7 +55,8 @@ test('v9 adds database integration and fills the SQL and PostgreSQL placeholders
   const pg = await Section.findOne({ key: 'backend/databases/postgresql' }).lean();
   assert.equal(await Question.countDocuments({ section: pg._id, owner: null }), 6);
   const node = await Section.find({ parent: (await Section.findOne({ key: 'backend/nodejs' }))._id }).sort({ order: 1 }).lean();
-  assert.deepEqual(node.slice(-2).map((n) => n.key), ['backend/nodejs/validation-errors', 'backend/nodejs/database']);
+  const keys = node.map((n) => n.key);
+  assert.ok(keys.indexOf('backend/nodejs/database') === keys.indexOf('backend/nodejs/validation-errors') + 1, 'database comes right after validation-errors');
 });
 
 test('running v9 again changes nothing', async () => {

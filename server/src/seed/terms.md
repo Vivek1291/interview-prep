@@ -661,3 +661,26 @@ console.log('more correct leading characters → more work → measurable time',
 - READ COMMITTED: read 50 then 45 within one transaction and overwrote a concurrent change.
 - REPEATABLE READ allowed write skew; SERIALIZABLE prevented it.
 :::
+
+=== WebSocket
+@aliases WebSockets, ws, wss
+@summary A protocol that upgrades one HTTP connection (`101 Switching Protocols`) into a persistent, two-way channel of small frames. Measured: a 20-byte message costs 22 bytes server → client and 26 bytes client → server.
+::: text 📖 Remember
+- Authenticate during the upgrade and check `Origin`.
+- Heartbeats (ping/pong) detect clients that vanished; reconnect with backoff + jitter.
+- Several instances need a shared bus (Redis pub/sub) for broadcasts.
+:::
+
+=== Server-Sent Events
+@aliases SSE, EventSource, text/event-stream
+@summary A long-lived HTTP response (`text/event-stream`) the server keeps writing events to; the browser's `EventSource` reconnects automatically and resumes with `Last-Event-ID`. Ideal for one-way updates like notifications and dashboards.
+::: text 📖 Measured
+- In Chrome, after the server cut the stream every 3 events, EventSource reconnected 4 times and received all 9 events in order without duplicates.
+:::
+
+=== Pub/sub
+@aliases publish-subscribe, publish/subscribe, Redis pub/sub
+@summary Publishers send messages to a channel without knowing who listens; every current subscriber receives a copy. Fire-and-forget: subscribers that are offline miss messages (use streams or queues when delivery must be durable).
+::: text 📖 Example
+- Two WebSocket instances with the Redis adapter: a room message emitted on instance A reached the client on instance B (50/50 vs 0/50 without it).
+:::
