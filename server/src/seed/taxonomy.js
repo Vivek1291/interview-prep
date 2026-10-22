@@ -112,12 +112,12 @@ const TREE = [
   {
     key: 'devops', title: 'DevOps', icon: '🚀', color: '#f97316', description: 'Shipping and running software.',
     children: [
-      { key: 'devops/aws', title: 'AWS', icon: '☁️', color: '#f97316', description: 'EC2, S3, IAM and deployment.', files: ['09-aws-ec2-deploy.md', '10-aws-s3.md', '11-aws-security.md'] },
-      { key: 'devops/docker', title: 'Docker', icon: '🐳', color: '#0ea5e9', description: 'Images, containers, Compose.' },
+      { key: 'devops/aws', title: 'AWS', icon: '☁️', color: '#f97316', description: 'EC2, S3, IAM and deployment.', files: ['09-aws-ec2-deploy.md', '10-aws-s3.md', '11-aws-security.md', '63-serverless-aws.md'] },
+      { key: 'devops/docker', files: ['59-docker-node.md'] },
       { key: 'devops/kubernetes', title: 'Kubernetes', icon: '☸️', color: '#3b82f6', description: 'Pods, deployments, services.' },
-      { key: 'devops/ci-cd', title: 'CI/CD', icon: '🔁', color: '#22c55e', description: 'Pipelines, GitHub Actions, release strategies.' },
+      { key: 'devops/ci-cd', title: 'CI/CD', icon: '🔁', color: '#22c55e', description: 'Pipelines, GitHub Actions, Jenkins, release strategies.', files: ['60-ci-cd-github-actions.md', '61-ci-cd-jenkins.md'] },
       { key: 'devops/linux-networking', title: 'Linux & Networking', icon: '🐧', color: '#64748b', description: 'Shell, processes, DNS, HTTP, TLS.' },
-      { key: 'devops/common', title: 'Common Topics', icon: '🧭', color: '#f97316', description: 'Monitoring, logging, infrastructure as code.' },
+      { key: 'devops/common', title: 'Common Topics', icon: '🧭', color: '#f97316', description: 'Monitoring, logging, infrastructure as code.', files: ['62-observability.md'] },
     ],
   },
   {

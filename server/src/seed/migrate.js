@@ -10,7 +10,7 @@ const Meta = require('../models/Meta');
 const Section = require('../models/Section');
 const { defaultNodes, seedIfEmpty, insertDefaultTerms, addMissingDefaults, reorderDefaultPages, syncDefaultNodeOrder, patchDefaultBlocks, UNCATEGORISED } = require('./index');
 
-const CURRENT = 13;
+const CURRENT = 14;
 // v3 (Oct 2026): glossary terms + React sections (files 22-26) added to existing databases
 const V3_FILES = ['22-react-fundamentals.md', '23-react-hooks.md', '24-react-performance.md', '25-react-suspense.md', '26-react-19.md'];
 // v4 (Oct 2026): JavaScript sections (files 27-33) + any new glossary terms
@@ -48,6 +48,8 @@ const V12_FILES = ['54-messaging-queues.md', '55-background-jobs.md'];
 // fix: detect client disconnects with res.on('close') instead of req.on('close') in already-seeded examples
 const V13_FILES = ['56-node-concurrency.md', '57-node-performance.md', '58-node-architecture.md'];
 const V13_NODE_ORDER = ['backend/nodejs/realtime', 'backend/nodejs/concurrency', 'backend/nodejs/performance', 'backend/nodejs/architecture'];
+// v14 (Oct 2026): DevOps: Docker (59), CI/CD with GitHub Actions (60) and Jenkins (61), Observability (62), Serverless & AWS (63)
+const V14_FILES = ['59-docker-node.md', '60-ci-cd-github-actions.md', '61-ci-cd-jenkins.md', '62-observability.md', '63-serverless-aws.md'];
 const V13_PATCHES = [
   {
     "file": "15-fullstack-lld.md",
@@ -218,8 +220,13 @@ async function migrate() {
       const patched = await patchDefaultBlocks(V13_PATCHES);
       console.log(`🔁 Migrated to v13: ${r.addedNodes} new categories, ${r.addedPages} new pages, ${terms} glossary terms, ${nodes} categories ordered, ${patched} pages patched`);
     }
+    if (version == null || version < 14) {
+      const r = await addMissingDefaults(V14_FILES);
+      const terms = await insertDefaultTerms(new Map(), { onlyMissing: true });
+      console.log(`🔁 Migrated to v14: ${r.addedNodes} new categories, ${r.addedPages} new pages, ${terms} glossary terms`);
+    }
   }
   await setVersion(CURRENT);
 }
 
-module.exports = { migrate, CURRENT, V3_FILES, V4_FILES, V5_FILES, V6_FILES, V7_FILES, V8_FILES, V9_FILES, V10_FILES, V11_FILES, V12_FILES, V13_FILES, V13_PATCHES };
+module.exports = { migrate, CURRENT, V3_FILES, V4_FILES, V5_FILES, V6_FILES, V7_FILES, V8_FILES, V9_FILES, V10_FILES, V11_FILES, V12_FILES, V13_FILES, V13_PATCHES, V14_FILES };

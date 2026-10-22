@@ -766,3 +766,83 @@ console.log('more correct leading characters → more work → measurable time',
 - Fail readiness before closing the listener so the load balancer stops routing first.
 - The grace period must exceed the drain time; jobs must still be idempotent.
 :::
+
+=== Docker image
+@aliases container image, Docker images
+@summary An immutable, layered package of OS files, the runtime, dependencies, app code and the start command. Containers are running instances of it. Measured: the same Node API image went from 1.86 GB to 231 MB with a multi-stage build on a small base.
+::: text 📖 Remember
+- Build once in CI, tag with the git SHA, promote the same image through every environment.
+- Layer order decides the cache: package files and npm ci before the source.
+:::
+
+=== Multi-stage build
+@aliases multi-stage Dockerfile, multi-stage builds
+@summary A Dockerfile with several FROM stages: a build stage with dev dependencies and compilers, and a small runtime stage that copies only the compiled output and production dependencies.
+::: text 📖 Remember
+- Use COPY --from=build to move only dist/ into the runtime stage.
+- Compilers, dev dependencies and caches never reach production.
+:::
+
+=== Continuous integration
+@aliases CI pipeline, CI/CD
+@summary Automatically installing, linting, testing and building every push and pull request so problems surface within minutes. Continuous delivery keeps main always deployable; continuous deployment ships every green build automatically.
+::: text 📖 Remember
+- Cheapest checks first, independent jobs in parallel, dependencies cached (measured npm ci 10.8 s → 2.1 s).
+- Build the artifact once and promote it; rollback = redeploy the previous tag.
+:::
+
+=== Blue-green deployment
+@aliases blue/green deployment
+@summary Running a full new copy of the system next to the current one and switching all traffic at once, keeping the old copy for an instant rollback.
+::: text 📖 Remember
+- Costs double capacity during the switch.
+- The database is shared, so schema changes must work for both versions (expand and contract).
+:::
+
+=== Canary release
+@aliases canary deployment, canary rollout
+@summary Sending a small percentage of traffic to a new version, comparing its error rate and latency with the stable version, then promoting it step by step or rolling back automatically.
+::: text 📖 Remember
+- Needs metrics split by version.
+- Limits the blast radius of a bad release to a few percent of users.
+:::
+
+=== Feature flag
+@aliases feature toggle, feature flags
+@summary A runtime switch that turns code paths on or off per user, percentage or environment, separating deploying code from releasing a feature.
+::: text 📖 Remember
+- Hash user id + flag name so a user always gets the same answer.
+- Remove flags after rollout to avoid dead code and untested combinations.
+:::
+
+=== Service level objective
+@aliases SLO, SLOs, SLI, error budget
+@summary A reliability target for a measured indicator, such as 99.9% of requests under 300 ms and not 5xx over 30 days. The error budget is what's left: 99.9% allows 43.2 minutes of failure per 30 days.
+::: text 📖 Remember
+- Alert on burn rate of the error budget, not on every CPU spike.
+- SLA = the contract with penalties, set looser than the SLO.
+:::
+
+=== OpenTelemetry
+@aliases OTel, OTLP
+@summary The vendor-neutral standard and SDKs for traces, metrics and logs. In Node, auto-instrumentation patches http, Express, pg and Redis and exports spans over OTLP to Jaeger, Tempo or a vendor.
+::: text 📖 Remember
+- Load the SDK before other modules (node --require ./tracing.js).
+- The W3C traceparent header carries the trace id between services.
+:::
+
+=== Cold start
+@aliases cold starts, Lambda cold start
+@summary The extra latency when a serverless platform creates a new execution environment: download code, start the runtime and run init code before the handler. Warm invocations reuse the environment.
+::: text 📖 Remember
+- Keep init small: bundle, trim dependencies, lazy-load (measured 87 ms → 54 ms locally).
+- Bursts create many environments at once; provisioned concurrency pre-warms them.
+:::
+
+=== Infrastructure as Code
+@aliases IaC, Terraform, AWS CDK
+@summary Defining cloud resources in version-controlled code (Terraform, AWS CDK, CloudFormation) so they're reviewed in pull requests, planned/diffed in CI and applied by the pipeline identically to every environment.
+::: text 📖 Remember
+- Always read the plan: a replace on a database deletes data.
+- Remote state with locking; no clicking resources together in the console.
+:::
