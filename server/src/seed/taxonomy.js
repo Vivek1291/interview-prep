@@ -73,7 +73,7 @@ const TREE = [
         files: ['45-http-fundamentals.md', '03-rest-auth.md'],
         children: [
           { key: 'backend/common/caching', files: ['53-caching.md'] },
-          { key: 'backend/common/messaging', title: 'Messaging & Queues', icon: '📨', color: '#8b5cf6', description: 'Queues, pub/sub, retries, idempotency.' },
+          { key: 'backend/common/messaging', title: 'Messaging & Queues', icon: '📨', color: '#8b5cf6', description: 'Queues, pub/sub, retries, idempotency.', files: ['54-messaging-queues.md', '55-background-jobs.md'] },
           { key: 'backend/common/security', title: 'Web Security', icon: '🛡️', color: '#8b5cf6', description: 'OWASP Top 10, XSS, CSRF, injection.' },
         ],
       },

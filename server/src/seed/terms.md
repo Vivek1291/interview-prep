@@ -713,3 +713,25 @@ console.log('more correct leading characters → more work → measurable time',
 ::: text 📖 In Redis
 - Implemented as a small Lua script so the check-and-update is atomic across instances.
 :::
+
+=== Transactional outbox
+@aliases outbox pattern, outbox
+@summary Writing an event into an outbox table in the same database transaction as the business change, then publishing it from a relay with retries. Solves the dual-write problem (measured: commit-then-publish lost 10 of 100 events; the outbox lost none).
+::: text 📖 Remember
+- Publishing is at-least-once, so consumers dedupe by event id.
+- Relays: polling with `FOR UPDATE SKIP LOCKED`, LISTEN/NOTIFY, or CDC (Debezium).
+:::
+
+=== Dead-letter queue
+@aliases DLQ, dead letter queue, failed set
+@summary Where messages go after their last failed attempt (BullMQ failed set, SQS DLQ, RabbitMQ dead-letter exchange), so poison messages don't block the queue and humans can inspect, fix and replay them.
+::: text 📖 Remember
+- Alert when it is non-empty; fail permanent errors there immediately instead of retrying.
+:::
+
+=== At-least-once delivery
+@aliases at least once, at-most-once, exactly-once
+@summary The usual queue guarantee: a message is acknowledged only after processing, so a crash leads to redelivery and possible duplicates. Measured: a worker killed after charging a customer caused a second charge unless the consumer was idempotent.
+::: text 📖 Remember
+- At-most-once acks first and may lose messages; "exactly once" in practice means at-least-once plus idempotent consumers.
+:::
