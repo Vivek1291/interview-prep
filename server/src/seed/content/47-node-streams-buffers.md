@@ -306,7 +306,7 @@ Node.js: writable.write() | https://nodejs.org/api/stream.html#writablewritechun
 Simpler than writing a `Transform` class for most logic: `async function* (source) { for await (const row of source) if (row.active) yield row; }`.
 
 ### Cancelling
-`const ac = new AbortController(); req.on('close', () => ac.abort()); await pipeline(source, res, { signal: ac.signal })`: a client disconnect stops the DB cursor too.
+`const ac = new AbortController(); res.on('close', () => { if (!res.writableEnded) ac.abort(); }); await pipeline(source, res, { signal: ac.signal })`: a client disconnect stops the DB cursor too. Listen on `res`, not `req`: in Node 22 `req` emits `close` as soon as its body has been read (measured ~1 ms for a POST), long before the response ends.
 :::
 
 ::: diagram What happens on failure
@@ -484,7 +484,7 @@ async function* toCsvBatches(cursor, columns, batchSize = 1000) {
 function exportUsers(User) {
   return async (req, res) => {
     const ac = new AbortController();
-    req.on('close', () => ac.abort());                                     // client went away → stop the cursor
+    res.on('close', () => { if (!res.writableEnded) ac.abort(); });       // client went away before we finished → stop the cursor
     const cursor = User.find({ deletedAt: null }).select('email name plan createdAt').lean().cursor({ batchSize: 1000 });
     res.set({ 'Content-Type': 'text/csv; charset=utf-8', 'Content-Disposition': 'attachment; filename="users.csv"', 'Cache-Control': 'no-store' });
     try {

@@ -88,12 +88,12 @@ const server = http.createServer((req, res) => {
   if (url.pathname === '/long') {                                     // long polling: wait for the next event
     const ready = events.filter((e) => e.id > after);
     if (ready.length) return res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify(ready));
-    const waiter = { res }; waiters.add(waiter); req.on('close', () => waiters.delete(waiter));
+    const waiter = { res }; waiters.add(waiter); res.on('close', () => waiters.delete(waiter));
     return;
   }
   if (url.pathname === '/sse') {                                      // SSE: one long response
     res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-cache' });
-    sseClients.add(res); req.on('close', () => sseClients.delete(res));
+    sseClients.add(res); res.on('close', () => sseClients.delete(res));
     return;
   }
   res.writeHead(404).end();
@@ -849,7 +849,7 @@ Live order tracking page with SSE in Express:
 1. `GET /api/orders/981/events` checks the session and that order 981 belongs to the user.
 2. Reads `Last-Event-ID`; sends events after it from the `order_events` table (or a snapshot if none).
 3. Subscribes to new events (Redis pub/sub) and writes them with their ids.
-4. Sends `: ping` every 15 s; on `req.on('close')` unsubscribes.
+4. Sends `: ping` every 15 s; on `res.on('close')` (client gone) unsubscribes.
 5. The browser's `EventSource` handles drops, deploys and network changes on its own.
 :::
 
@@ -871,7 +871,7 @@ app.get('/api/orders/:id/events', async (req, res) => {
 
   const unsubscribe = subscribe(`order:${orderId}`, send);              // e.g. Redis pub/sub
   const heartbeat = setInterval(() => res.write(': ping\n\n'), 15_000);
-  req.on('close', () => { clearInterval(heartbeat); unsubscribe(); });
+  res.on('close', () => { clearInterval(heartbeat); unsubscribe(); });   // res, not req (req may close once its body is read)
 });
 
 // in-memory stand-ins for the example

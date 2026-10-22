@@ -47,6 +47,9 @@ const TREE = [
           { key: 'backend/nodejs/validation-errors', files: ['46-node-validation-errors.md'] },
           { key: 'backend/nodejs/database', files: ['48-node-database-integration.md'] },
           { key: 'backend/nodejs/realtime', files: ['51-realtime.md'] },
+          { key: 'backend/nodejs/concurrency', files: ['56-node-concurrency.md'] },
+          { key: 'backend/nodejs/performance', files: ['57-node-performance.md'] },
+          { key: 'backend/nodejs/architecture', files: ['58-node-architecture.md'] },
         ],
       },
       {

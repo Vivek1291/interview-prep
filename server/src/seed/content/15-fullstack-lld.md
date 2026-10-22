@@ -5383,7 +5383,7 @@ function createSseHub() {
       });
       res.write('retry: 3000\n\n');                               // browser reconnect delay
       clients.add(res);
-      req.on('close', () => clients.delete(res));
+      res.on('close', () => clients.delete(res));                 // res, not req: req can emit 'close' as soon as its body was read
     },
     publish(event, data) {
       const frame = `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;

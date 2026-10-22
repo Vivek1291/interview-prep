@@ -735,3 +735,34 @@ console.log('more correct leading characters → more work → measurable time',
 ::: text 📖 Remember
 - At-most-once acks first and may lose messages; "exactly once" in practice means at-least-once plus idempotent consumers.
 :::
+
+=== Worker threads
+@aliases worker_threads, worker pool, piscina
+@summary Separate V8 isolates inside one Node process that run JavaScript in parallel on other cores. Use them (in a pool) for CPU-heavy work; measured 8 CPU tasks at 435 ms on the main thread vs 115 ms in 8 workers, and a pool raised a CPU endpoint from 807 to 4,654 req/s.
+::: text 📖 Remember
+- Messages are copied; transfer ArrayBuffers to avoid copies (100 MB: 72 ms copied vs 1.2 ms transferred).
+- Don't start a worker per request (about 12 ms each).
+:::
+
+=== Memory leak
+@aliases memory leaks, heap snapshot, leak
+@summary Memory that stays reachable after it's no longer needed, so garbage collection can't free it and the heap grows until the process crashes. Measured: an unbounded Map cache grew from 3.7 to 88.6 MB over 200,000 requests; a bounded LRU stayed at 6.2 MB.
+::: text 📖 Finding it
+- Compare heap snapshots before and after load; follow the retainers of the objects that grew.
+- Usual causes: unbounded caches, listeners and timers never removed, closures holding large objects.
+:::
+
+=== AsyncLocalStorage
+@aliases async local storage, request context, async_hooks
+@summary A Node.js API that keeps a value (like a request id) for the whole async call chain of one request, so loggers deep in services can read it without passing it around. Measured overhead on a trivial route: about 10%.
+::: text 📖 Use for
+- Request/correlation ids, user and tenant ids, trace context (pino mixins, OpenTelemetry).
+:::
+
+=== Graceful shutdown
+@aliases graceful termination, SIGTERM handling, draining
+@summary Handling SIGTERM by failing readiness, stopping new connections, finishing in-flight work, closing pools and connections, then exiting. Measured: idle keep-alive sockets made server.close() take 7.3 s until idle connections were closed after each response (1.3 s).
+::: text 📖 Remember
+- Fail readiness before closing the listener so the load balancer stops routing first.
+- The grace period must exceed the drain time; jobs must still be idempotent.
+:::

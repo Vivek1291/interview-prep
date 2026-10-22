@@ -194,4 +194,31 @@ async function syncDefaultNodeOrder(keys) {
   return changed;
 }
 
-module.exports = { reorderDefaultPages, syncDefaultNodeOrder, seedIfEmpty, resetToDefaults, insertDefaults, insertDefaultTerms, addMissingDefaults, loadContent, loadTerms, defaultNodes, UNCATEGORISED };
+/**
+ * Replace an exact snippet inside blocks of SHARED default pages (used to fix a bug in already-seeded content).
+ * Each patch: { file, title?, from, to }. Text blocks are stored as HTML, so the inline-rendered form is tried too.
+ * A page an admin changed so the snippet is no longer there is left untouched.
+ */
+async function patchDefaultBlocks(patches) {
+  const { inline } = require('./markdown');
+  const nodes = defaultNodes();
+  let changed = 0;
+  for (const p of patches) {
+    const keys = nodes.filter((n) => n.seedFile === p.file).map((n) => n.key);
+    const sectionIds = (await Section.find({ key: { $in: keys }, owner: null }, '_id').lean()).map((x) => x._id);
+    const query = { section: { $in: sectionIds }, owner: null, ...(p.title ? { title: p.title } : {}) };
+    const variants = [[p.from, p.to], [inline(p.from), inline(p.to)]];
+    for (const page of await Question.find(query).lean()) {
+      let dirty = false;
+      const blocks = page.blocks.map((b) => {
+        let content = b.content;
+        for (const [from, to] of variants) if (content.includes(from)) { content = content.split(from).join(to); dirty = true; }
+        return content === b.content ? b : { ...b, content };
+      });
+      if (dirty) { await Question.updateOne({ _id: page._id }, { $set: { blocks } }); changed += 1; }
+    }
+  }
+  return changed;
+}
+
+module.exports = { patchDefaultBlocks, reorderDefaultPages, syncDefaultNodeOrder, seedIfEmpty, resetToDefaults, insertDefaults, insertDefaultTerms, addMissingDefaults, loadContent, loadTerms, defaultNodes, UNCATEGORISED };

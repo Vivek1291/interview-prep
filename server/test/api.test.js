@@ -49,7 +49,7 @@ after(async () => {
 test('fresh install seeds the tree in the right shape', async () => {
   const roots = childrenOf(tree, null).map((n) => n.title);
   assert.deepEqual(roots, ['Frontend', 'Backend', 'System Design', 'DevOps', 'Testing', 'DSA']);
-  assert.equal(tree.pages.length, 427);
+  assert.equal(tree.pages.length, 444);
   assert.deepEqual(childrenOf(tree, node('backend/common/messaging')._id).map((n) => n.title), ['Message Queues & Event-Driven Architecture', 'Background Jobs, Scheduling & Email']);
   assert.equal(childrenOf(tree, node('frontend')._id).map((n) => n.title).join(' | '), 'JavaScript | TypeScript | React | Next.js | Web Security (Browser) | HTML & CSS');
   assert.deepEqual(childrenOf(tree, node('frontend/typescript')._id).map((n) => n.title), ['TypeScript Fundamentals', 'TypeScript Advanced & React']);
@@ -63,7 +63,7 @@ test('fresh install seeds the tree in the right shape', async () => {
   assert.deepEqual(childrenOf(tree, node('frontend/javascript/polyfills')._id).map((n) => n.title), ['JS Implementations (Polyfills)', 'Array & Function Polyfills']);
   assert.deepEqual(childrenOf(tree, node('frontend/react')._id).map((n) => n.title),
     ['React Fundamentals', 'React Hooks', 'React Performance', 'React Suspense & Concurrent React', 'React 19']);
-  assert.deepEqual(childrenOf(tree, node('backend/nodejs')._id).map((n) => n.title), ['Node.js Core', 'Node.js Runtime & Modules', 'Node.js Core Modules', 'Streams & Buffers in Depth', 'Express.js', 'Validation & Error Handling', 'Node.js Database Integration', 'Real-Time: WebSockets & SSE']);
+  assert.deepEqual(childrenOf(tree, node('backend/nodejs')._id).map((n) => n.title), ['Node.js Core', 'Node.js Runtime & Modules', 'Node.js Core Modules', 'Streams & Buffers in Depth', 'Express.js', 'Validation & Error Handling', 'Node.js Database Integration', 'Real-Time: WebSockets & SSE', 'Node.js Concurrency: Workers, Processes & Cluster', 'Node.js Performance & Memory', 'Node.js Architecture & Production Readiness']);
   assert.equal(childrenOf(tree, node('backend/databases/mongodb')._id).length, 4);
   assert.equal(tree.pages.filter((p) => String(p.section) === String(node('frontend/javascript/polyfills/js-implementations')._id)).length, 12);
   assert.deepEqual(childrenOf(tree, node('backend/common')._id).slice(0, 3).map((n) => n.title), ['HTTP Fundamentals', 'REST APIs & Authentication', 'Caching'], 'a node\'s own files come first, in the order listed, then its placeholder children');

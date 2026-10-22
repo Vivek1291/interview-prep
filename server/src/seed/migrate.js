@@ -8,9 +8,9 @@
 const mongoose = require('mongoose');
 const Meta = require('../models/Meta');
 const Section = require('../models/Section');
-const { defaultNodes, seedIfEmpty, insertDefaultTerms, addMissingDefaults, reorderDefaultPages, syncDefaultNodeOrder, UNCATEGORISED } = require('./index');
+const { defaultNodes, seedIfEmpty, insertDefaultTerms, addMissingDefaults, reorderDefaultPages, syncDefaultNodeOrder, patchDefaultBlocks, UNCATEGORISED } = require('./index');
 
-const CURRENT = 12;
+const CURRENT = 13;
 // v3 (Oct 2026): glossary terms + React sections (files 22-26) added to existing databases
 const V3_FILES = ['22-react-fundamentals.md', '23-react-hooks.md', '24-react-performance.md', '25-react-suspense.md', '26-react-19.md'];
 // v4 (Oct 2026): JavaScript sections (files 27-33) + any new glossary terms
@@ -44,6 +44,47 @@ const V10_NODE_ORDER = ['backend/nodejs/database', 'backend/nodejs/realtime'];
 const V11_FILES = ['52-redis.md', '53-caching.md'];
 // v12 (Oct 2026): Messaging & Queues (54) and Background Jobs, Scheduling & Email (55) under Common → Messaging & Queues
 const V12_FILES = ['54-messaging-queues.md', '55-background-jobs.md'];
+// v13 (Oct 2026): Node.js Concurrency (56), Performance & Memory (57), Architecture & Production Readiness (58);
+// fix: detect client disconnects with res.on('close') instead of req.on('close') in already-seeded examples
+const V13_FILES = ['56-node-concurrency.md', '57-node-performance.md', '58-node-architecture.md'];
+const V13_NODE_ORDER = ['backend/nodejs/realtime', 'backend/nodejs/concurrency', 'backend/nodejs/performance', 'backend/nodejs/architecture'];
+const V13_PATCHES = [
+  {
+    "file": "15-fullstack-lld.md",
+    "from": "      req.on('close', () => clients.delete(res));",
+    "to": "      res.on('close', () => clients.delete(res));                 // res, not req: req can emit 'close' as soon as its body was read"
+  },
+  {
+    "file": "47-node-streams-buffers.md",
+    "from": "`const ac = new AbortController(); req.on('close', () => ac.abort()); await pipeline(source, res, { signal: ac.signal })`: a client disconnect stops the DB cursor too.",
+    "to": "`const ac = new AbortController(); res.on('close', () => { if (!res.writableEnded) ac.abort(); }); await pipeline(source, res, { signal: ac.signal })`: a client disconnect stops the DB cursor too. Listen on `res`, not `req`: in Node 22 `req` emits `close` as soon as its body has been read (measured ~1 ms for a POST), long before the response ends."
+  },
+  {
+    "file": "47-node-streams-buffers.md",
+    "from": "    req.on('close', () => ac.abort());                                     // client went away → stop the cursor",
+    "to": "    res.on('close', () => { if (!res.writableEnded) ac.abort(); });       // client went away before we finished → stop the cursor"
+  },
+  {
+    "file": "51-realtime.md",
+    "from": "    const waiter = { res }; waiters.add(waiter); req.on('close', () => waiters.delete(waiter));",
+    "to": "    const waiter = { res }; waiters.add(waiter); res.on('close', () => waiters.delete(waiter));"
+  },
+  {
+    "file": "51-realtime.md",
+    "from": "    sseClients.add(res); req.on('close', () => sseClients.delete(res));",
+    "to": "    sseClients.add(res); res.on('close', () => sseClients.delete(res));"
+  },
+  {
+    "file": "51-realtime.md",
+    "from": "Sends `: ping` every 15 s; on `req.on('close')` unsubscribes.",
+    "to": "Sends `: ping` every 15 s; on `res.on('close')` (client gone) unsubscribes."
+  },
+  {
+    "file": "51-realtime.md",
+    "from": "  req.on('close', () => { clearInterval(heartbeat); unsubscribe(); });",
+    "to": "  res.on('close', () => { clearInterval(heartbeat); unsubscribe(); });   // res, not req (req may close once its body is read)"
+  }
+];
 
 async function getVersion() {
   return (await Meta.findById('schemaVersion').lean())?.value ?? null;
@@ -170,8 +211,15 @@ async function migrate() {
       const terms = await insertDefaultTerms(new Map(), { onlyMissing: true });
       console.log(`🔁 Migrated to v12: ${r.addedNodes} new categories, ${r.addedPages} new pages, ${terms} glossary terms`);
     }
+    if (version == null || version < 13) {
+      const r = await addMissingDefaults(V13_FILES);
+      const terms = await insertDefaultTerms(new Map(), { onlyMissing: true });
+      const nodes = await syncDefaultNodeOrder(V13_NODE_ORDER);
+      const patched = await patchDefaultBlocks(V13_PATCHES);
+      console.log(`🔁 Migrated to v13: ${r.addedNodes} new categories, ${r.addedPages} new pages, ${terms} glossary terms, ${nodes} categories ordered, ${patched} pages patched`);
+    }
   }
   await setVersion(CURRENT);
 }
 
-module.exports = { migrate, CURRENT, V3_FILES, V4_FILES, V5_FILES, V6_FILES, V7_FILES, V8_FILES, V9_FILES, V10_FILES, V11_FILES, V12_FILES };
+module.exports = { migrate, CURRENT, V3_FILES, V4_FILES, V5_FILES, V6_FILES, V7_FILES, V8_FILES, V9_FILES, V10_FILES, V11_FILES, V12_FILES, V13_FILES, V13_PATCHES };

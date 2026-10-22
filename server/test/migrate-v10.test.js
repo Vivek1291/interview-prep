@@ -39,9 +39,11 @@ after(async () => { await mongoose.connection.dropDatabase(); await mongoose.dis
 test('v10 adds the real-time section after database integration', async () => {
   assert.equal((await Meta.findById('schemaVersion').lean()).value, CURRENT);
   const kids = await Section.find({ parent: (await Section.findOne({ key: 'backend/nodejs' }))._id }).sort({ order: 1 }).lean();
-  assert.deepEqual(kids.slice(-2).map((n) => n.key), ['backend/nodejs/database', 'backend/nodejs/realtime']);
-  assert.equal(kids.at(-1).title, 'Real-Time: WebSockets & SSE');
-  assert.equal(await Question.countDocuments({ section: kids.at(-1)._id, owner: null }), 8);
+  const keys = kids.map((n) => n.key);
+  assert.equal(keys.indexOf('backend/nodejs/realtime'), keys.indexOf('backend/nodejs/database') + 1, 'realtime right after database');
+  const rt = kids.find((n) => n.key === 'backend/nodejs/realtime');
+  assert.equal(rt.title, 'Real-Time: WebSockets & SSE');
+  assert.equal(await Question.countDocuments({ section: rt._id, owner: null }), 8);
   assert.ok(await Question.findOne({ title: 'My DB notes', owner }), 'private page kept');
 });
 
