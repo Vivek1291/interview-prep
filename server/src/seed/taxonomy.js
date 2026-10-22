@@ -95,7 +95,7 @@ const TREE = [
       {
         key: 'system-design/backend', title: 'Backend', icon: '⚙️', color: '#22c55e', description: 'Designing APIs and services.',
         children: [
-          { key: 'system-design/backend/nodejs', title: 'Node.js', icon: '🟢', color: '#22c55e', description: 'Service design in Node.js.', files: ['14-backend-lld.md'] },
+          { key: 'system-design/backend/nodejs', title: 'Node.js', icon: '🟢', color: '#22c55e', description: 'Service design in Node.js.', files: ['14-backend-lld.md', '68-nodejs-system-designs.md', '69-platform-system-designs.md'] },
           { key: 'system-design/backend/java', title: 'Java', icon: '☕', color: '#f97316', description: 'Service design in Java.' },
         ],
       },
@@ -106,7 +106,7 @@ const TREE = [
           { key: 'system-design/fullstack/java', title: 'Java + React', icon: '☕', color: '#f97316', description: 'Full-stack designs with a Java backend.' },
         ],
       },
-      { key: 'system-design/common', title: 'Common Topics', icon: '🧭', color: '#6366f1', description: 'Scalability, load balancing, caching, consistency, trade-offs.' },
+      { key: 'system-design/common', title: 'Common Topics', icon: '🧭', color: '#6366f1', description: 'Scalability, load balancing, caching, consistency, trade-offs.', files: ['64-scalability.md', '65-distributed-systems.md', '66-resilience.md', '67-microservices.md'] },
     ],
   },
   {

@@ -846,3 +846,83 @@ console.log('more correct leading characters → more work → measurable time',
 - Always read the plan: a replace on a database deletes data.
 - Remote state with locking; no clicking resources together in the console.
 :::
+
+=== CAP theorem
+@aliases CAP, PACELC
+@summary During a network partition a distributed data store must choose between consistency (refusing some requests) and availability (answering with possibly stale data). PACELC adds that without partitions you still trade latency for consistency.
+::: text 📖 Remember
+- Partitions are not optional, so the real choice is C or A during failures.
+- Choose per feature: balances need strong consistency, like counts can be eventual.
+:::
+
+=== Consistent hashing
+@aliases hash ring, virtual nodes
+@summary Placing keys and nodes on a hash ring so adding or removing a node only moves about 1/N of the keys. Measured 4 → 5 shards: modulo moved 80% of keys, a ring with 100 virtual nodes moved 24.4% with even load.
+::: text 📖 Remember
+- Virtual nodes balance the load.
+- Used by sharded caches, Cassandra/DynamoDB-style stores and load balancers with stickiness.
+:::
+
+=== Saga pattern
+@aliases saga orchestration, compensating transaction
+@summary A multi-service workflow made of local transactions, each with a compensating action that undoes it if a later step fails (release stock, refund, cancel). Gives eventual consistency without distributed locks.
+::: text 📖 Remember
+- Orchestration (one coordinator) is easier to follow than choreography (services react to events).
+- Steps and compensations must be idempotent; publish events through an outbox.
+:::
+
+=== Circuit breaker
+@aliases circuit breakers, bulkhead
+@summary A wrapper around calls to a dependency that stops calling it after repeated failures (open), fails fast with a fallback, and lets a probe through after a cool-down (half-open). Measured against a hung dependency: 158 req/s with a timeout alone, 32,647 req/s with a breaker.
+::: text 📖 Remember
+- Needs a timeout to count hung calls as failures.
+- Bulkheads (separate pools per dependency) contain the damage further.
+:::
+
+=== Exponential backoff
+@aliases backoff with jitter, full jitter, retry storm
+@summary Waiting longer after each failed attempt (base × 2^attempt, capped), with random jitter so clients don't retry in synchronised waves. Measured: immediate retries made every client give up; full jitter recovered in 5.8 s with 6.3 requests per client.
+::: text 📖 Remember
+- Retry only transient errors and idempotent operations; honour Retry-After.
+- Retry in one layer only; retries at several layers multiply.
+:::
+
+=== Load shedding
+@aliases admission control, shed load
+@summary Rejecting excess requests early and cheaply (503 + Retry-After) when demand exceeds capacity, so accepted requests stay fast instead of everything slowing down until clients time out.
+::: text 📖 Remember
+- Limit concurrency, queue length or queue wait time; drop work whose deadline passed.
+- Shed low-priority traffic first, never health checks.
+:::
+
+=== Strangler fig pattern
+@aliases strangler fig, strangler pattern
+@summary Migrating away from a monolith gradually: a router sends one capability at a time to a new service until the old code can be removed.
+::: text 📖 Remember
+- Move one well-understood bounded context at a time.
+- The new service gets its own data; sync with events during the transition.
+:::
+
+=== Row-level security
+@aliases RLS, row level security
+@summary A Postgres feature that applies a policy (e.g. tenant_id = current_setting('app.tenant_id')) to every query on a table. Measured: a query that forgot its tenant filter still saw only one tenant's rows, with no measurable overhead.
+::: text 📖 Remember
+- Set the tenant per transaction (set_config(..., true)) from the authenticated user.
+- Table owners bypass RLS unless FORCE ROW LEVEL SECURITY is set; the app should use another role.
+:::
+
+=== Fencing token
+@aliases fencing tokens
+@summary An increasing number handed out with each lock or leader lease; storage rejects writes carrying an older token, so a paused former leader can't overwrite newer data.
+::: text 📖 Remember
+- Leases expire, but a paused process doesn't know that.
+- Pair locks used for correctness with fencing; plain Redis locks don't provide it.
+:::
+
+=== Consumer-driven contract testing
+@aliases contract testing, contract tests, Pact
+@summary Consumers publish the fields and interactions they rely on, and the provider's CI verifies them against the real provider before deploying, replacing most cross-service end-to-end tests.
+::: text 📖 Remember
+- Additive changes pass; renames and removals are caught before release.
+- Gate deploys on verification results (can-i-deploy).
+:::
