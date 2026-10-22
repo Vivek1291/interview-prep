@@ -684,3 +684,32 @@ console.log('more correct leading characters → more work → measurable time',
 ::: text 📖 Example
 - Two WebSocket instances with the Redis adapter: a room message emitted on instance A reached the client on instance B (50/50 vs 0/50 without it).
 :::
+
+=== Cache-aside
+@aliases lazy loading cache, cache aside
+@summary The most common caching pattern: read the cache; on a miss load from the database and store the result with a TTL; on writes update the database and delete the key. Measured: an expensive report endpoint went from 50 to 13,199 requests per second.
+::: text 📖 Remember
+- Delete (don't update) the key on writes.
+- A slow reader can write an old value back after the delete: keep TTLs or use versions.
+:::
+
+=== Cache stampede
+@aliases thundering herd, dog-pile effect
+@summary Many requests rebuilding the same expired cache key at once. Measured: 200 concurrent requests on a cold key sent 200 heavy queries and 185 failed; single-flight plus a Redis lock made it 1 query.
+::: text 📖 Fixes
+- Single-flight per process, a lock per key, stale-while-revalidate, refresh-ahead, TTL jitter.
+:::
+
+=== Distributed lock
+@aliases Redis lock, SET NX, Redlock
+@summary A lock shared by several processes, usually `SET key token NX PX ttl` in Redis with a token-checked release. Good for avoiding duplicate work (measured: 20 instances → 1 job run); for correctness add database constraints or fencing tokens.
+::: text 📖 Remember
+- Never release with a blind `DEL`: it can delete another holder's lock after yours expired.
+:::
+
+=== Token bucket
+@aliases token bucket algorithm, leaky bucket
+@summary A rate-limiting algorithm: a bucket holds up to N tokens that refill at a fixed rate; each request takes one token. Allows short bursts but enforces the average rate (measured: 10 of 20 requests allowed across a window boundary, vs 20 of 20 with a fixed window).
+::: text 📖 In Redis
+- Implemented as a small Lua script so the check-and-update is atomic across instances.
+:::

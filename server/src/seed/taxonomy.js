@@ -65,14 +65,14 @@ const TREE = [
           },
           { key: 'backend/databases/sql', files: ['49-sql-fundamentals.md'] },
           { key: 'backend/databases/postgresql', files: ['50-postgresql.md'] },
-          { key: 'backend/databases/redis', title: 'Redis', icon: '🟥', color: '#ef4444', description: 'Caching, data structures, rate limiting, queues.' },
+          { key: 'backend/databases/redis', files: ['52-redis.md'] },
         ],
       },
       {
         key: 'backend/common', title: 'Common Topics', icon: '🔗', color: '#8b5cf6', description: 'Concepts every backend needs, whatever the language.',
         files: ['45-http-fundamentals.md', '03-rest-auth.md'],
         children: [
-          { key: 'backend/common/caching', title: 'Caching', icon: '🗃️', color: '#8b5cf6', description: 'Cache-aside, TTLs, invalidation, CDNs.' },
+          { key: 'backend/common/caching', files: ['53-caching.md'] },
           { key: 'backend/common/messaging', title: 'Messaging & Queues', icon: '📨', color: '#8b5cf6', description: 'Queues, pub/sub, retries, idempotency.' },
           { key: 'backend/common/security', title: 'Web Security', icon: '🛡️', color: '#8b5cf6', description: 'OWASP Top 10, XSS, CSRF, injection.' },
         ],
