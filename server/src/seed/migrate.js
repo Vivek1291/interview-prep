@@ -10,7 +10,7 @@ const Meta = require('../models/Meta');
 const Section = require('../models/Section');
 const { defaultNodes, seedIfEmpty, insertDefaultTerms, addMissingDefaults, reorderDefaultPages, syncDefaultNodeOrder, patchDefaultBlocks, UNCATEGORISED } = require('./index');
 
-const CURRENT = 15;
+const CURRENT = 16;
 // v3 (Oct 2026): glossary terms + React sections (files 22-26) added to existing databases
 const V3_FILES = ['22-react-fundamentals.md', '23-react-hooks.md', '24-react-performance.md', '25-react-suspense.md', '26-react-19.md'];
 // v4 (Oct 2026): JavaScript sections (files 27-33) + any new glossary terms
@@ -52,6 +52,9 @@ const V13_NODE_ORDER = ['backend/nodejs/realtime', 'backend/nodejs/concurrency',
 const V14_FILES = ['59-docker-node.md', '60-ci-cd-github-actions.md', '61-ci-cd-jenkins.md', '62-observability.md', '63-serverless-aws.md'];
 // v15 (Oct 2026): System design: scalability (64), distributed systems (65), resilience (66), microservices (67), Node.js case studies (68, 69)
 const V15_FILES = ['64-scalability.md', '65-distributed-systems.md', '66-resilience.md', '67-microservices.md', '68-nodejs-system-designs.md', '69-platform-system-designs.md'];
+// v16 (Oct 2026): Nginx & deploying frontend + backend (70), placed right after Docker
+const V16_FILES = ['70-nginx-deployment.md'];
+const V16_NODE_ORDER = ['devops/aws', 'devops/docker', 'devops/nginx-deployment', 'devops/kubernetes', 'devops/ci-cd', 'devops/linux-networking', 'devops/common'];
 const V13_PATCHES = [
   {
     "file": "15-fullstack-lld.md",
@@ -232,8 +235,14 @@ async function migrate() {
       const terms = await insertDefaultTerms(new Map(), { onlyMissing: true });
       console.log(`🔁 Migrated to v15: ${r.addedNodes} new categories, ${r.addedPages} new pages, ${terms} glossary terms`);
     }
+    if (version == null || version < 16) {
+      const r = await addMissingDefaults(V16_FILES);
+      const terms = await insertDefaultTerms(new Map(), { onlyMissing: true });
+      const nodes = await syncDefaultNodeOrder(V16_NODE_ORDER);
+      console.log(`🔁 Migrated to v16: ${r.addedNodes} new categories, ${r.addedPages} new pages, ${terms} glossary terms, ${nodes} categories ordered`);
+    }
   }
   await setVersion(CURRENT);
 }
 
-module.exports = { migrate, CURRENT, V3_FILES, V4_FILES, V5_FILES, V6_FILES, V7_FILES, V8_FILES, V9_FILES, V10_FILES, V11_FILES, V12_FILES, V13_FILES, V13_PATCHES, V14_FILES, V15_FILES };
+module.exports = { migrate, CURRENT, V3_FILES, V4_FILES, V5_FILES, V6_FILES, V7_FILES, V8_FILES, V9_FILES, V10_FILES, V11_FILES, V12_FILES, V13_FILES, V13_PATCHES, V14_FILES, V15_FILES, V16_FILES };

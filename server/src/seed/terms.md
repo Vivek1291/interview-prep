@@ -926,3 +926,27 @@ console.log('more correct leading characters → more work → measurable time',
 - Additive changes pass; renames and removals are caught before release.
 - Gate deploys on verification results (can-i-deploy).
 :::
+
+=== Nginx
+@aliases NGINX, engine-x
+@summary An event-driven web server and reverse proxy. In front of Node it terminates HTTPS, serves the React build with compression and caching, routes /api to Node instances with keep-alive and load balancing, and enforces limits. Measured: raw static speed similar to Node; config reloads dropped 0 of 136,529 requests.
+::: text 📖 Remember
+- `nginx -t` then `nginx -s reload`, never a restart, for config changes.
+- Defaults to know: 1 MB body limit (413), 60 s proxy read timeout (504), buffering on.
+:::
+
+=== Reverse proxy
+@aliases reverse proxies, proxy_pass
+@summary A server that receives client requests and forwards them to backend servers, hiding them behind one public address. Used for TLS termination, routing, load balancing, caching and limits (Nginx, HAProxy, Envoy, cloud load balancers).
+::: text 📖 Remember
+- Forward Host, X-Forwarded-For and X-Forwarded-Proto; trust exactly as many proxy hops as you have.
+- Reuse upstream connections (measured 64,596 → 124 TCP connections with keepalive).
+:::
+
+=== SPA fallback
+@aliases try_files, history API fallback
+@summary Serving index.html for unknown paths so a single-page app's client-side router can render deep links like /dashboard/settings. Measured: 404 without try_files, 200 with it.
+::: text 📖 Remember
+- Keep missing /assets/* files as real 404s.
+- Cache hashed assets for a year and index.html with no-cache.
+:::

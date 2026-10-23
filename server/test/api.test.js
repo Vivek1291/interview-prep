@@ -49,7 +49,8 @@ after(async () => {
 test('fresh install seeds the tree in the right shape', async () => {
   const roots = childrenOf(tree, null).map((n) => n.title);
   assert.deepEqual(roots, ['Frontend', 'Backend', 'System Design', 'DevOps', 'Testing', 'DSA']);
-  assert.equal(tree.pages.length, 490);
+  assert.equal(tree.pages.length, 495);
+  assert.deepEqual(childrenOf(tree, node('devops')._id).map((n) => n.title).slice(0, 3), ['AWS', 'Docker for Node.js', 'Nginx & Deploying Frontend + Backend']);
   assert.deepEqual(childrenOf(tree, node('system-design/common')._id).map((n) => n.title), ['Scalability & Production Architecture', 'Distributed Systems Fundamentals', 'Resilience & Rate Limiting', 'Microservices Architecture']);
   assert.deepEqual(childrenOf(tree, node('devops/ci-cd')._id).map((n) => n.title), ['CI/CD with GitHub Actions', 'CI/CD with Jenkins']);
   assert.equal(node('devops/docker').title, 'Docker for Node.js');

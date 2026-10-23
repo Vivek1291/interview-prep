@@ -114,6 +114,7 @@ const TREE = [
     children: [
       { key: 'devops/aws', title: 'AWS', icon: '☁️', color: '#f97316', description: 'EC2, S3, IAM and deployment.', files: ['09-aws-ec2-deploy.md', '10-aws-s3.md', '11-aws-security.md', '63-serverless-aws.md'] },
       { key: 'devops/docker', files: ['59-docker-node.md'] },
+      { key: 'devops/nginx-deployment', files: ['70-nginx-deployment.md'] },
       { key: 'devops/kubernetes', title: 'Kubernetes', icon: '☸️', color: '#3b82f6', description: 'Pods, deployments, services.' },
       { key: 'devops/ci-cd', title: 'CI/CD', icon: '🔁', color: '#22c55e', description: 'Pipelines, GitHub Actions, Jenkins, release strategies.', files: ['60-ci-cd-github-actions.md', '61-ci-cd-jenkins.md'] },
       { key: 'devops/linux-networking', title: 'Linux & Networking', icon: '🐧', color: '#64748b', description: 'Shell, processes, DNS, HTTP, TLS.' },
